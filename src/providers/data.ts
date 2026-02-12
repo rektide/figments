@@ -23,7 +23,11 @@ export class Data<F extends Format> implements Provider {
   private source: DataSource;
   private profileName: string | undefined;
 
-  public constructor(private readonly format: F, source: DataSource, profileName: string | undefined = DEFAULT_PROFILE) {
+  public constructor(
+    private readonly format: F,
+    source: DataSource,
+    profileName: string | undefined = DEFAULT_PROFILE,
+  ) {
     this.source = source;
     this.profileName = profileName;
   }
@@ -79,7 +83,9 @@ export class Data<F extends Format> implements Provider {
 
     if (this.profileName) {
       if (!isConfigDict(value)) {
-        throw new Error(`${this.format.name} source must decode to a dictionary when nesting is disabled`);
+        throw new Error(
+          `${this.format.name} source must decode to a dictionary when nesting is disabled`,
+        );
       }
 
       return {
@@ -188,7 +194,12 @@ async function exists(path: string): Promise<boolean> {
 }
 
 function toConfigValue(value: unknown): ConfigValue {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
 

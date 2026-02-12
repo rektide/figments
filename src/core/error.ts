@@ -2,6 +2,7 @@ import type { Metadata } from "./metadata.ts";
 
 export class FigmentError extends Error {
   readonly kind: string;
+  readonly tag?: number;
   readonly path: string[];
   readonly profile?: string;
   readonly metadata?: Metadata;
@@ -12,6 +13,7 @@ export class FigmentError extends Error {
     message: string,
     options?: {
       path?: string[];
+      tag?: number;
       profile?: string;
       metadata?: Metadata;
       previous?: FigmentError;
@@ -20,6 +22,7 @@ export class FigmentError extends Error {
     super(message);
     this.name = "FigmentError";
     this.kind = kind;
+    this.tag = options?.tag;
     this.path = options?.path ?? [];
     this.profile = options?.profile;
     this.metadata = options?.metadata;
@@ -29,6 +32,7 @@ export class FigmentError extends Error {
   public withPath(path: string): FigmentError {
     return new FigmentError(this.kind, this.message, {
       path: [...this.path, ...path.split(".").filter(Boolean)],
+      tag: this.tag,
       profile: this.profile,
       metadata: this.metadata,
       previous: this.previous,
@@ -38,6 +42,7 @@ export class FigmentError extends Error {
   public chain(previous: FigmentError): FigmentError {
     return new FigmentError(this.kind, this.message, {
       path: this.path,
+      tag: this.tag,
       profile: this.profile,
       metadata: this.metadata,
       previous,
@@ -46,7 +51,11 @@ export class FigmentError extends Error {
 
   public toString(): string {
     const keySuffix = this.path.length > 0 ? ` for key '${this.path.join(".")}'` : "";
-    const sourceSuffix = this.metadata?.source ? ` in ${this.metadata.source} ${this.metadata.name}` : this.metadata ? ` in ${this.metadata.name}` : "";
+    const sourceSuffix = this.metadata?.source
+      ? ` in ${this.metadata.source} ${this.metadata.name}`
+      : this.metadata
+        ? ` in ${this.metadata.name}`
+        : "";
     const base = `${this.message}${keySuffix}${sourceSuffix}`;
     if (!this.previous) {
       return base;
@@ -63,5 +72,19 @@ export class FigmentError extends Error {
 
   public static message(message: string): FigmentError {
     return new FigmentError("Message", message);
+  }
+
+  public withContext(options: {
+    tag?: number;
+    profile?: string;
+    metadata?: Metadata;
+  }): FigmentError {
+    return new FigmentError(this.kind, this.message, {
+      path: this.path,
+      tag: options.tag ?? this.tag,
+      profile: options.profile ?? this.profile,
+      metadata: options.metadata ?? this.metadata,
+      previous: this.previous,
+    });
   }
 }

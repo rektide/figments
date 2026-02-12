@@ -96,7 +96,8 @@ export class Env implements Provider {
       : "environment variable(s)";
 
     const metadata = metadataNamed(base);
-    metadata.interpolate = (_profile: string, keys: string[]) => keys.map((k) => k.toUpperCase()).join(".");
+    metadata.interpolate = (_profile: string, keys: string[]) =>
+      keys.map((k) => k.toUpperCase()).join(".");
     return metadata;
   }
 
@@ -207,7 +208,12 @@ function parseEnvironmentValue(rawValue: string): ConfigValue {
 }
 
 function convertUnknown(value: unknown): ConfigValue {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
 

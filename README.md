@@ -1,7 +1,6 @@
-# figment-ts
+# FigmenTS
 
-TypeScript port of the core `figment` configuration model from
-`~/archive/SB/Figment-src`.
+TypeScript port of the rust `figment` library
 
 ## Included
 
@@ -15,20 +14,19 @@ TypeScript port of the core `figment` configuration model from
 
 ## Notes
 
-- This port keeps the conflict-resolution and provider-composition model, but is
-  intentionally lighter than Rust `figment`.
+- This port keeps the conflict-resolution and provider-composition model, but is intentionally lighter than Rust `figment`.
 - APIs that load files are asynchronous.
 - Type extraction returns plain typed values, optionally with a decode function.
 
 ## Example
 
 ```ts
-import { Figment, providers } from "./src/index.ts";
+import { Figment, providers } from "./src/index.ts"
 
 const figment = Figment.new()
-  .merge(providers.Toml.file("Config.toml"))
-  .merge(providers.Env.prefixed("APP_").split("_"))
-  .join(providers.Json.file("Config.json"));
+	.merge(providers.Toml.file("Config.toml"))
+	.merge(providers.Env.prefixed("APP_").split("_"))
+	.join(providers.Json.file("Config.json"))
 
-const config = await figment.extract<{ app: { name: string } }>();
+const config = await figment.extract<{ app: { name: string } }>()
 ```

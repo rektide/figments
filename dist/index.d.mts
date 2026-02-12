@@ -21,11 +21,15 @@ interface Provider {
   selectedProfile?(): string | undefined;
 }
 //#endregion
+//#region src/core/tag.d.ts
+type Tag = number;
+//#endregion
 //#region src/figment.d.ts
 declare class Figment implements Provider {
   private activeProfile;
   private readonly metadataByTag;
   private values;
+  private tags;
   private failure?;
   private nextTag;
   private pending;
@@ -36,6 +40,8 @@ declare class Figment implements Provider {
   data(): Promise<ProfileMap>;
   profile(): string;
   metadataEntries(): Metadata[];
+  getMetadata(tag: Tag): Metadata | undefined;
+  findMetadata(path: string): Promise<Metadata | undefined>;
   select(profile: string): Figment;
   join(provider: Provider): Figment;
   adjoin(provider: Provider): Figment;
@@ -52,6 +58,8 @@ declare class Figment implements Provider {
   ready(): Promise<void>;
   private provide;
   private merged;
+  private mergedState;
+  private findTagForPath;
 }
 //#endregion
 //#region src/profile.d.ts
@@ -63,12 +71,14 @@ declare function profileFromEnvOr(key: string, fallback: string): string;
 //#region src/core/error.d.ts
 declare class FigmentError extends Error {
   readonly kind: string;
+  readonly tag?: number;
   readonly path: string[];
   readonly profile?: string;
   readonly metadata?: Metadata;
   readonly previous?: FigmentError;
   constructor(kind: string, message: string, options?: {
     path?: string[];
+    tag?: number;
     profile?: string;
     metadata?: Metadata;
     previous?: FigmentError;
@@ -78,6 +88,11 @@ declare class FigmentError extends Error {
   toString(): string;
   static missingField(path: string): FigmentError;
   static message(message: string): FigmentError;
+  withContext(options: {
+    tag?: number;
+    profile?: string;
+    metadata?: Metadata;
+  }): FigmentError;
 }
 //#endregion
 //#region src/providers/env.d.ts

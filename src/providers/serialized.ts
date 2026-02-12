@@ -74,7 +74,12 @@ export class Serialized<T = unknown> implements Provider {
 }
 
 function toConfigValue(value: unknown): ConfigValue {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
 

@@ -37,6 +37,26 @@ function deepClone(value) {
 }
 
 //#endregion
+//#region src/core/tag.ts
+function buildTagTree(value, tag) {
+	if (Array.isArray(value)) return value.map((item) => buildTagTree(item, tag));
+	if (isConfigDict(value)) {
+		const tree = {};
+		for (const [key, item] of Object.entries(value)) tree[key] = buildTagTree(item, tag);
+		return tree;
+	}
+	return tag;
+}
+function buildTagProfileMap(values, tag) {
+	const map = {};
+	for (const [profile, dict] of Object.entries(values)) map[profile] = buildTagTree(dict, tag);
+	return map;
+}
+function isTagDict(value) {
+	return typeof value === "object" && !Array.isArray(value);
+}
+
+//#endregion
 //#region src/core/coalesce.ts
 function profileCoalesce(current, incoming, order) {
 	switch (order) {
@@ -74,11 +94,46 @@ function coalesceValue(current, incoming, order) {
 	if (order === "join" || order === "adjoin") return deepClone(current);
 	return deepClone(incoming);
 }
+function coalesceTagProfiles(current, incoming, order) {
+	const out = {};
+	const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
+	for (const key of keys) if (current[key] && incoming[key]) out[key] = coalesceTagDict(current[key], incoming[key], order);
+	else if (current[key]) out[key] = deepCloneTag(current[key]);
+	else if (incoming[key]) out[key] = deepCloneTag(incoming[key]);
+	return out;
+}
+function coalesceTagDict(current, incoming, order) {
+	const out = {};
+	const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
+	for (const key of keys) if (key in current && key in incoming) out[key] = coalesceTagValue(current[key], incoming[key], order);
+	else if (key in current) out[key] = deepCloneTag(current[key]);
+	else out[key] = deepCloneTag(incoming[key]);
+	return out;
+}
+function coalesceTagValue(current, incoming, order) {
+	if (isTagDict(current) && isTagDict(incoming)) return coalesceTagDict(current, incoming, order);
+	if (Array.isArray(current) && Array.isArray(incoming)) {
+		if (order === "adjoin" || order === "admerge") return [...deepCloneTag(current), ...deepCloneTag(incoming)];
+		return order === "join" ? deepCloneTag(current) : deepCloneTag(incoming);
+	}
+	if (order === "join" || order === "adjoin") return deepCloneTag(current);
+	return deepCloneTag(incoming);
+}
+function deepCloneTag(value) {
+	if (Array.isArray(value)) return value.map((item) => deepCloneTag(item));
+	if (typeof value === "object") {
+		const out = {};
+		for (const [key, item] of Object.entries(value)) out[key] = deepCloneTag(item);
+		return out;
+	}
+	return value;
+}
 
 //#endregion
 //#region src/core/error.ts
 var FigmentError = class FigmentError extends Error {
 	kind;
+	tag;
 	path;
 	profile;
 	metadata;
@@ -87,6 +142,7 @@ var FigmentError = class FigmentError extends Error {
 		super(message);
 		this.name = "FigmentError";
 		this.kind = kind;
+		this.tag = options?.tag;
 		this.path = options?.path ?? [];
 		this.profile = options?.profile;
 		this.metadata = options?.metadata;
@@ -95,6 +151,7 @@ var FigmentError = class FigmentError extends Error {
 	withPath(path) {
 		return new FigmentError(this.kind, this.message, {
 			path: [...this.path, ...path.split(".").filter(Boolean)],
+			tag: this.tag,
 			profile: this.profile,
 			metadata: this.metadata,
 			previous: this.previous
@@ -103,6 +160,7 @@ var FigmentError = class FigmentError extends Error {
 	chain(previous) {
 		return new FigmentError(this.kind, this.message, {
 			path: this.path,
+			tag: this.tag,
 			profile: this.profile,
 			metadata: this.metadata,
 			previous
@@ -120,6 +178,15 @@ var FigmentError = class FigmentError extends Error {
 	}
 	static message(message) {
 		return new FigmentError("Message", message);
+	}
+	withContext(options) {
+		return new FigmentError(this.kind, this.message, {
+			path: this.path,
+			tag: options.tag ?? this.tag,
+			profile: options.profile ?? this.profile,
+			metadata: options.metadata ?? this.metadata,
+			previous: this.previous
+		});
 	}
 };
 
@@ -143,6 +210,17 @@ function nest(path, value) {
 	for (let i = keys.length - 2; i >= 0; i -= 1) out = { [keys[i]]: out };
 	return out;
 }
+function findTag(dict, path) {
+	if (path.length === 0) return dict;
+	const keys = path.split(".").filter(Boolean);
+	let current = dict;
+	for (const key of keys) {
+		if (!isTagDict(current)) return;
+		if (!(key in current)) return;
+		current = current[key];
+	}
+	return current;
+}
 
 //#endregion
 //#region src/figment.ts
@@ -150,6 +228,7 @@ var Figment = class Figment {
 	activeProfile;
 	metadataByTag;
 	values;
+	tags;
 	failure;
 	nextTag;
 	pending;
@@ -157,6 +236,7 @@ var Figment = class Figment {
 		this.activeProfile = DEFAULT_PROFILE;
 		this.metadataByTag = /* @__PURE__ */ new Map();
 		this.values = {};
+		this.tags = {};
 		this.failure = void 0;
 		this.nextTag = 1;
 		this.pending = Promise.resolve();
@@ -182,6 +262,13 @@ var Figment = class Figment {
 	}
 	metadataEntries() {
 		return [...this.metadataByTag.values()];
+	}
+	getMetadata(tag) {
+		return this.metadataByTag.get(tag);
+	}
+	async findMetadata(path) {
+		const tag = await this.findTagForPath(path);
+		return tag === void 0 ? void 0 : this.metadataByTag.get(tag);
 	}
 	select(profile) {
 		this.activeProfile = normalizeProfile(profile);
@@ -226,7 +313,7 @@ var Figment = class Figment {
 		}
 	}
 	async findValue(path) {
-		const value = findValue(await this.merged(), path);
+		const value = findValue((await this.mergedState()).value, path);
 		if (value === void 0) throw FigmentError.missingField(path);
 		return value;
 	}
@@ -241,11 +328,17 @@ var Figment = class Figment {
 			focused.nextTag = this.nextTag;
 			for (const [tag, metadata] of this.metadataByTag.entries()) focused.metadataByTag.set(tag, metadata);
 			const map = {};
+			const tags = {};
 			for (const [profile, dict] of Object.entries(this.values)) {
 				const value = findValue(dict, path);
-				if (isConfigDict(value)) map[profile] = deepClone(value);
+				const tree = this.tags[profile] ? findTag(this.tags[profile], path) : void 0;
+				if (isConfigDict(value)) {
+					map[profile] = deepClone(value);
+					if (tree && typeof tree === "object" && !Array.isArray(tree)) tags[profile] = deepClone(tree);
+				}
 			}
 			focused.values = map;
+			focused.tags = tags;
 		});
 		return focused;
 	}
@@ -263,21 +356,42 @@ var Figment = class Figment {
 			if (this.failure) return;
 			try {
 				const incoming = normalizeProfiles(await provider.data());
+				const incomingTags = buildTagProfileMap(incoming, tag);
 				this.values = coalesceProfiles(this.values, incoming, order);
+				this.tags = coalesceTagProfiles(this.tags, incomingTags, order);
 			} catch (error) {
-				const figmentError = error instanceof FigmentError ? error : FigmentError.message(error instanceof Error ? error.message : String(error));
+				const figmentError = error instanceof FigmentError ? error.withContext({
+					metadata: this.metadataByTag.get(tag),
+					tag,
+					profile: this.activeProfile
+				}) : FigmentError.message(error instanceof Error ? error.message : String(error));
 				this.failure = this.failure ? figmentError.chain(this.failure) : figmentError;
 			}
 		});
 		return this;
 	}
 	async merged() {
+		return (await this.mergedState()).value;
+	}
+	async mergedState() {
 		await this.ready();
 		const defaults = this.values[DEFAULT_PROFILE] ?? {};
 		const globals = this.values[GLOBAL_PROFILE] ?? {};
 		const selected = this.values[this.activeProfile];
-		if (selected && isCustomProfile(this.activeProfile)) return coalesceDict(coalesceDict(defaults, selected, "merge"), globals, "merge");
-		return coalesceDict(defaults, globals, "merge");
+		const defaultTags = this.tags[DEFAULT_PROFILE] ?? {};
+		const globalTags = this.tags[GLOBAL_PROFILE] ?? {};
+		const selectedTags = this.tags[this.activeProfile];
+		if (selected && isCustomProfile(this.activeProfile)) return {
+			value: coalesceDict(coalesceDict(defaults, selected, "merge"), globals, "merge"),
+			tags: coalesceTagDict(coalesceTagDict(defaultTags, selectedTags ?? {}, "merge"), globalTags, "merge")
+		};
+		return {
+			value: coalesceDict(defaults, globals, "merge"),
+			tags: coalesceTagDict(defaultTags, globalTags, "merge")
+		};
+	}
+	async findTagForPath(path) {
+		return unwrapTag(findTag((await this.mergedState()).tags, path));
 	}
 };
 function normalizeProfiles(map) {
@@ -317,6 +431,20 @@ function lossyValue(value) {
 		if (!Number.isNaN(parsed)) return parsed;
 	}
 	return value;
+}
+function unwrapTag(tree) {
+	if (typeof tree === "number") return tree;
+	if (Array.isArray(tree)) {
+		for (const item of tree) {
+			const tag = unwrapTag(item);
+			if (tag !== void 0) return tag;
+		}
+		return;
+	}
+	if (tree && typeof tree === "object") for (const item of Object.values(tree)) {
+		const tag = unwrapTag(item);
+		if (tag !== void 0) return tag;
+	}
 }
 
 //#endregion

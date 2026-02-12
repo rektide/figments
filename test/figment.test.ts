@@ -8,6 +8,8 @@ import { Figment } from "../src/figment.ts";
 import { Env } from "../src/providers/env.ts";
 import { Serialized } from "../src/providers/serialized.ts";
 import { Toml } from "../src/providers/data.ts";
+import type { Provider } from "../src/provider.ts";
+import { metadataNamed } from "../src/core/metadata.ts";
 
 describe("figment merge behavior", () => {
   it("merge prefers incoming values while join keeps existing", async () => {
@@ -30,6 +32,34 @@ describe("figment merge behavior", () => {
       .admerge(Serialized.default("items", ["b"]));
 
     expect(await figment.extractInner<string[]>("items")).toEqual(["a", "b"]);
+  });
+
+  it("tracks metadata provenance for winning values", async () => {
+    class NamedProvider implements Provider {
+      public constructor(
+        private readonly providerName: string,
+        private readonly value: string,
+      ) {}
+
+      public metadata() {
+        return metadataNamed(this.providerName);
+      }
+
+      public data() {
+        return { default: { name: this.value } };
+      }
+    }
+
+    const base = new NamedProvider("BaseProvider", "base");
+    const incoming = new NamedProvider("IncomingProvider", "incoming");
+
+    const merged = Figment.new().join(base).merge(incoming);
+    const mergedMetadata = await merged.findMetadata("name");
+    expect(mergedMetadata?.name).toBe("IncomingProvider");
+
+    const joined = Figment.new().join(base).join(incoming);
+    const joinedMetadata = await joined.findMetadata("name");
+    expect(joinedMetadata?.name).toBe("BaseProvider");
   });
 });
 

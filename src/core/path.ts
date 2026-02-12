@@ -1,5 +1,7 @@
 import type { ConfigDict, ConfigValue } from "./types.ts";
 import { isConfigDict } from "./types.ts";
+import type { TagDict, TagTree } from "./tag.ts";
+import { isTagDict } from "./tag.ts";
 
 export function findValue(dict: ConfigDict, path: string): ConfigValue | undefined {
   if (path.length === 0) {
@@ -24,7 +26,10 @@ export function findValue(dict: ConfigDict, path: string): ConfigValue | undefin
 }
 
 export function nest(path: string, value: ConfigValue): ConfigDict {
-  const keys = path.split(".").map((k) => k.trim()).filter(Boolean);
+  const keys = path
+    .split(".")
+    .map((k) => k.trim())
+    .filter(Boolean);
   if (keys.length === 0) {
     return {};
   }
@@ -35,4 +40,26 @@ export function nest(path: string, value: ConfigValue): ConfigDict {
   }
 
   return out;
+}
+
+export function findTag(dict: TagDict, path: string): TagTree | undefined {
+  if (path.length === 0) {
+    return dict;
+  }
+
+  const keys = path.split(".").filter(Boolean);
+  let current: TagTree = dict;
+  for (const key of keys) {
+    if (!isTagDict(current)) {
+      return undefined;
+    }
+
+    if (!(key in current)) {
+      return undefined;
+    }
+
+    current = current[key];
+  }
+
+  return current;
 }
