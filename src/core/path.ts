@@ -54,11 +54,12 @@ export function findTag(dict: TagDictNode, path: string): TagTree | undefined {
       return undefined;
     }
 
-    if (!(key in current.entries)) {
+    const child: TagTree | undefined = current.children.find((item) => item.key === key);
+    if (!child) {
       return undefined;
     }
 
-    current = current.entries[key];
+    current = child;
   }
 
   return current;

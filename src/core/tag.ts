@@ -1,52 +1,61 @@
 import type { ConfigValue, ProfileMap } from "./types.ts";
 import { isConfigDict } from "./types.ts";
 
-export type Tag = number;
+export interface Tag {
+  metadataId: number;
+  profile: string;
+}
 
-export type TagTree = TagScalarNode | TagArrayNode | TagDictNode;
+export interface BaseTagNode {
+  kind: "scalar" | "array" | "dict";
+  tag: Tag;
+  key?: string;
+}
 
-export interface TagScalarNode {
+export interface TagScalarNode extends BaseTagNode {
   kind: "scalar";
-  tag: Tag;
 }
 
-export interface TagArrayNode {
+export interface TagArrayNode extends BaseTagNode {
   kind: "array";
-  tag: Tag;
-  items: TagTree[];
+  children: TagNode[];
 }
 
-export interface TagDictNode {
+export interface TagDictNode extends BaseTagNode {
   kind: "dict";
-  tag: Tag;
-  entries: TagDict;
+  children: DictChildTagNode[];
 }
 
-export interface TagDict {
-  [key: string]: TagTree;
-}
+export type TagNode = TagScalarNode | TagArrayNode | TagDictNode;
+
+export type DictChildTagNode =
+  | (TagScalarNode & { key: string })
+  | (TagArrayNode & { key: string })
+  | (TagDictNode & { key: string });
+
+export type TagTree = TagNode;
 
 export type ProfileTagMap = Record<string, TagDictNode>;
 
-export function buildTagTree(value: ConfigValue, tag: Tag): TagTree {
+export function buildTagTree(value: ConfigValue, tag: Tag): TagNode {
   if (Array.isArray(value)) {
     return {
       kind: "array",
       tag,
-      items: value.map((item) => buildTagTree(item, tag)),
+      children: value.map((item) => buildTagTree(item, tag)),
     };
   }
 
   if (isConfigDict(value)) {
-    const entries: TagDict = {};
+    const children: DictChildTagNode[] = [];
     for (const [key, item] of Object.entries(value)) {
-      entries[key] = buildTagTree(item, tag);
+      children.push({ ...buildTagTree(item, tag), key } as DictChildTagNode);
     }
 
     return {
       kind: "dict",
       tag,
-      entries,
+      children,
     };
   }
 
@@ -59,42 +68,43 @@ export function buildTagTree(value: ConfigValue, tag: Tag): TagTree {
 export function buildTagProfileMap(values: ProfileMap, tag: Tag): ProfileTagMap {
   const map: ProfileTagMap = {};
   for (const [profile, dict] of Object.entries(values)) {
-    map[profile] = buildTagTree(dict, tag) as TagDictNode;
+    map[profile] = buildTagTree(dict, retagForProfile(tag, profile)) as TagDictNode;
   }
 
   return map;
 }
 
-export function isTagDictNode(value: TagTree): value is TagDictNode {
+export function isTagDictNode(value: TagNode): value is TagDictNode {
   return value.kind === "dict";
 }
 
-export function isTagArrayNode(value: TagTree): value is TagArrayNode {
+export function isTagArrayNode(value: TagNode): value is TagArrayNode {
   return value.kind === "array";
 }
 
-export function cloneTagTree(value: TagTree): TagTree {
-  if (isTagArrayNode(value)) {
+export function cloneTagTree(value: TagNode): TagNode {
+  if (value.kind === "array") {
     return {
       kind: "array",
       tag: value.tag,
-      items: value.items.map((item) => cloneTagTree(item)),
+      key: value.key,
+      children: value.children.map((item) => cloneTagTree(item)),
     };
   }
 
-  if (isTagDictNode(value)) {
+  if (value.kind === "dict") {
     return {
       kind: "dict",
       tag: value.tag,
-      entries: Object.fromEntries(
-        Object.entries(value.entries).map(([key, item]) => [key, cloneTagTree(item)]),
-      ),
+      key: value.key,
+      children: value.children.map((item) => cloneTagTree(item) as DictChildTagNode),
     };
   }
 
   return {
     kind: "scalar",
     tag: value.tag,
+    key: value.key,
   };
 }
 
@@ -113,7 +123,7 @@ export function cloneProfileTagMap(map: ProfileTagMap): ProfileTagMap {
 
 export function remapProfileTagMap(
   map: ProfileTagMap,
-  tagMap: ReadonlyMap<Tag, Tag>,
+  tagMap: ReadonlyMap<number, number>,
 ): ProfileTagMap {
   const out: ProfileTagMap = {};
   for (const [profile, node] of Object.entries(map)) {
@@ -123,28 +133,47 @@ export function remapProfileTagMap(
   return out;
 }
 
-function remapTagTree(value: TagTree, tagMap: ReadonlyMap<Tag, Tag>): TagTree {
-  const tag = tagMap.get(value.tag) ?? value.tag;
-  if (isTagArrayNode(value)) {
+function remapTagTree(value: TagNode, tagMap: ReadonlyMap<number, number>): TagNode {
+  const tag = {
+    metadataId: tagMap.get(value.tag.metadataId) ?? value.tag.metadataId,
+    profile: value.tag.profile,
+  };
+
+  if (value.kind === "array") {
     return {
       kind: "array",
       tag,
-      items: value.items.map((item) => remapTagTree(item, tagMap)),
+      key: value.key,
+      children: value.children.map((item) => remapTagTree(item, tagMap)),
     };
   }
 
-  if (isTagDictNode(value)) {
+  if (value.kind === "dict") {
     return {
       kind: "dict",
       tag,
-      entries: Object.fromEntries(
-        Object.entries(value.entries).map(([key, item]) => [key, remapTagTree(item, tagMap)]),
-      ),
+      key: value.key,
+      children: value.children.map((item) => remapTagTree(item, tagMap) as DictChildTagNode),
     };
   }
 
   return {
     kind: "scalar",
     tag,
+    key: value.key,
+  };
+}
+
+export function makeTag(metadataId: number, profile: string): Tag {
+  return {
+    metadataId,
+    profile,
+  };
+}
+
+export function retagForProfile(tag: Tag, profile: string): Tag {
+  return {
+    metadataId: tag.metadataId,
+    profile,
   };
 }

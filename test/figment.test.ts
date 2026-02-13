@@ -9,7 +9,7 @@ import { Env } from "../src/providers/env.ts";
 import { Serialized } from "../src/providers/serialized.ts";
 import { Toml } from "../src/providers/data.ts";
 import type { Provider } from "../src/provider.ts";
-import type { ProfileTagMap, Tag } from "../src/core/tag.ts";
+import { makeTag, type ProfileTagMap } from "../src/core/tag.ts";
 import type { ConfigDict } from "../src/core/types.ts";
 import { metadataNamed } from "../src/core/metadata.ts";
 
@@ -43,7 +43,7 @@ class TaggedEntryProvider implements Provider {
   }
 
   public metadataMap() {
-    return new Map<Tag, ReturnType<typeof metadataNamed>>([
+    return new Map<number, ReturnType<typeof metadataNamed>>([
       [41, metadataNamed("AlphaSource")],
       [42, metadataNamed("BetaSource")],
     ]);
@@ -53,11 +53,11 @@ class TaggedEntryProvider implements Provider {
     return {
       default: {
         kind: "dict",
-        tag: 41,
-        entries: {
-          alpha: { kind: "scalar", tag: 41 },
-          beta: { kind: "scalar", tag: 42 },
-        },
+        tag: makeTag(41, "default"),
+        children: [
+          { kind: "scalar", key: "alpha", tag: makeTag(41, "default") },
+          { kind: "scalar", key: "beta", tag: makeTag(42, "default") },
+        ],
       },
     };
   }
@@ -98,7 +98,7 @@ describe("figment merge behavior", () => {
     const joinedMetadata = await joined.findMetadata("name");
     expect(joinedMetadata?.name).toBe("BaseProvider");
 
-    expect(joined.getMetadata(99_999)).toBeUndefined();
+    expect(joined.getMetadata(makeTag(99_999, "default"))).toBeUndefined();
   });
 
   it("tracks nested winning leaf provenance", async () => {

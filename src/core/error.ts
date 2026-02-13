@@ -1,9 +1,10 @@
 import type { Metadata } from "./metadata.ts";
 import { formatMetadataSource } from "./metadata.ts";
+import type { Tag } from "./tag.ts";
 
 export class FigmentError extends Error {
   readonly kind: string;
-  readonly tag?: number;
+  readonly tag?: Tag;
   readonly path: string[];
   readonly profile?: string;
   readonly metadata?: Metadata;
@@ -14,7 +15,7 @@ export class FigmentError extends Error {
     message: string,
     options?: {
       path?: string[];
-      tag?: number;
+      tag?: Tag;
       profile?: string;
       metadata?: Metadata;
       previous?: FigmentError;
@@ -76,11 +77,7 @@ export class FigmentError extends Error {
     return new FigmentError("Message", message);
   }
 
-  public withContext(options: {
-    tag?: number;
-    profile?: string;
-    metadata?: Metadata;
-  }): FigmentError {
+  public withContext(options: { tag?: Tag; profile?: string; metadata?: Metadata }): FigmentError {
     return new FigmentError(this.kind, this.message, {
       path: this.path,
       tag: options.tag ?? this.tag,

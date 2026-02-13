@@ -17,6 +17,7 @@ import {
   buildTagProfileMap,
   cloneProfileTagMap,
   cloneTagDictNode,
+  makeTag,
   remapProfileTagMap,
   type ProfileTagMap,
   type Tag,
@@ -76,7 +77,7 @@ export class Figment implements Provider {
     return [...this.metadataByTag.values()];
   }
 
-  public metadataMap(): Map<Tag, Metadata> {
+  public metadataMap(): Map<number, Metadata> {
     return new Map(this.metadataByTag.entries());
   }
 
@@ -85,12 +86,12 @@ export class Figment implements Provider {
   }
 
   public getMetadata(tag: Tag): Metadata | undefined {
-    return this.metadataByTag.get(tag);
+    return this.metadataByTag.get(tag.metadataId);
   }
 
   public async findMetadata(path: string): Promise<Metadata | undefined> {
     const tag = await this.findTagForPath(path);
-    return tag === undefined ? undefined : this.metadataByTag.get(tag);
+    return tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
   }
 
   public select(profile: string): Figment {
@@ -166,8 +167,8 @@ export class Figment implements Provider {
 
       focused.activeProfile = this.activeProfile;
       focused.nextTag = this.nextTag;
-      for (const [tag, metadata] of this.metadataByTag.entries()) {
-        focused.metadataByTag.set(tag, metadata);
+      for (const [metadataId, metadata] of this.metadataByTag.entries()) {
+        focused.metadataByTag.set(metadataId, metadata);
       }
 
       const map: ProfileMap = {};
@@ -227,10 +228,10 @@ export class Figment implements Provider {
           incoming = normalizeProfiles(await provider.data());
           incomingTags = remapProfileTagMap(cloneProfileTagMap(importedTagMap), remap);
         } else {
-          contextTag = this.allocateTag();
+          contextTag = this.allocateTag(this.activeProfile);
           contextMetadata = provider.metadata();
           contextMetadata.provideLocation = provideLocation;
-          this.metadataByTag.set(contextTag, contextMetadata);
+          this.metadataByTag.set(contextTag.metadataId, contextMetadata);
           incoming = normalizeProfiles(await provider.data());
           incomingTags = buildTagProfileMap(incoming, contextTag);
         }
@@ -254,30 +255,30 @@ export class Figment implements Provider {
     return this;
   }
 
-  private allocateTag(): Tag {
+  private allocateTag(profile: string): Tag {
     while (this.metadataByTag.has(this.nextTag)) {
       this.nextTag += 1;
     }
 
-    const tag = this.nextTag;
+    const metadataId = this.nextTag;
     this.nextTag += 1;
-    return tag;
+    return makeTag(metadataId, profile);
   }
 
-  private importMetadataMap(map: Map<number, Metadata>): Map<Tag, Tag> {
-    const remap = new Map<Tag, Tag>();
-    for (const [tag, metadata] of map.entries()) {
-      if (!this.metadataByTag.has(tag)) {
-        this.metadataByTag.set(tag, metadata);
-        if (tag >= this.nextTag) {
-          this.nextTag = tag + 1;
+  private importMetadataMap(map: Map<number, Metadata>): Map<number, number> {
+    const remap = new Map<number, number>();
+    for (const [metadataId, metadata] of map.entries()) {
+      if (!this.metadataByTag.has(metadataId)) {
+        this.metadataByTag.set(metadataId, metadata);
+        if (metadataId >= this.nextTag) {
+          this.nextTag = metadataId + 1;
         }
         continue;
       }
 
-      const replacement = this.allocateTag();
-      remap.set(tag, replacement);
-      this.metadataByTag.set(replacement, metadata);
+      const replacement = this.allocateTag(this.activeProfile);
+      remap.set(metadataId, replacement.metadataId);
+      this.metadataByTag.set(replacement.metadataId, metadata);
     }
 
     return remap;
@@ -386,8 +387,8 @@ function unwrapTag(tree: TagTree | undefined): Tag | undefined {
 function emptyTagDictNode(): TagDictNode {
   return {
     kind: "dict",
-    tag: 0,
-    entries: {},
+    tag: makeTag(0, DEFAULT_PROFILE),
+    children: [],
   };
 }
 
