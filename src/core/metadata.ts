@@ -1,9 +1,15 @@
-export type MetadataSourceKind = "file" | "env" | "inline" | "custom";
+export type MetadataSourceKind = string;
 
 export interface MetadataSource {
   kind: MetadataSourceKind;
   value: string;
 }
+
+export const SourceKind = {
+  File: "file",
+  Env: "env",
+  Inline: "inline",
+} as const;
 
 export interface Metadata {
   name: string;
@@ -29,21 +35,21 @@ export function metadataFrom(name: string, source: string): Metadata {
 export function metadataFromFile(name: string, path: string): Metadata {
   return {
     ...metadataNamed(name),
-    source: { kind: "file", value: path },
+    source: { kind: SourceKind.File, value: path },
   };
 }
 
 export function metadataFromEnv(name: string, selector: string): Metadata {
   return {
     ...metadataNamed(name),
-    source: { kind: "env", value: selector },
+    source: { kind: SourceKind.Env, value: selector },
   };
 }
 
 export function metadataFromInline(name: string, descriptor: string): Metadata {
   return {
     ...metadataNamed(name),
-    source: { kind: "inline", value: descriptor },
+    source: { kind: SourceKind.Inline, value: descriptor },
   };
 }
 
@@ -52,14 +58,13 @@ export function formatMetadataSource(source: MetadataSource | undefined): string
     return "";
   }
 
-  switch (source.kind) {
-    case "file":
-      return `file ${source.value}`;
-    case "env":
-      return `environment ${source.value}`;
-    case "inline":
-      return source.value;
-    case "custom":
-      return source.value;
+  if (source.kind === SourceKind.File) {
+    return `file ${source.value}`;
   }
+
+  if (source.kind === SourceKind.Env) {
+    return `environment ${source.value}`;
+  }
+
+  return source.value;
 }
