@@ -37,6 +37,8 @@ export type TagTree = TagNode;
 
 export type ProfileTagMap = Record<string, TagDictNode>;
 
+const dictChildrenIndexCache = new WeakMap<TagDictNode, Map<string, DictChildTagNode>>();
+
 export function buildTagTree(value: ConfigValue, tag: Tag): TagNode {
   if (Array.isArray(value)) {
     return {
@@ -80,6 +82,21 @@ export function isTagDictNode(value: TagNode): value is TagDictNode {
 
 export function isTagArrayNode(value: TagNode): value is TagArrayNode {
   return value.kind === "array";
+}
+
+export function dictChildrenIndex(node: TagDictNode): Map<string, DictChildTagNode> {
+  const cached = dictChildrenIndexCache.get(node);
+  if (cached) {
+    return cached;
+  }
+
+  const index = new Map<string, DictChildTagNode>();
+  for (const child of node.children) {
+    index.set(child.key, child);
+  }
+
+  dictChildrenIndexCache.set(node, index);
+  return index;
 }
 
 export function cloneTagTree(value: TagNode): TagNode {

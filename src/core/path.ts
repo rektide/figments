@@ -1,7 +1,7 @@
 import type { ConfigDict, ConfigValue } from "./types.ts";
 import { isConfigDict } from "./types.ts";
 import type { TagDictNode, TagTree } from "./tag.ts";
-import { isTagDictNode } from "./tag.ts";
+import { dictChildrenIndex, isTagDictNode } from "./tag.ts";
 
 export function findValue(dict: ConfigDict, path: string): ConfigValue | undefined {
   if (path.length === 0) {
@@ -54,7 +54,7 @@ export function findTag(dict: TagDictNode, path: string): TagTree | undefined {
       return undefined;
     }
 
-    const child: TagTree | undefined = current.children.find((item) => item.key === key);
+    const child: TagTree | undefined = dictChildrenIndex(current).get(key);
     if (!child) {
       return undefined;
     }

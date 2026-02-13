@@ -1,6 +1,7 @@
 import type { ConfigDict, ConfigValue, ProfileMap } from "./types.ts";
 import { deepClone, isConfigDict } from "./types.ts";
 import {
+  dictChildrenIndex,
   type DictChildTagNode,
   type ProfileTagMap,
   type TagDictNode,
@@ -118,7 +119,7 @@ export function coalesceTagDictNode(
     kind: "dict",
     key: current.key ?? incoming.key,
     tag: prefersCurrent(order) ? current.tag : incoming.tag,
-    children: coalesceDictChildren(current.children, incoming.children, order),
+    children: coalesceDictChildren(current, incoming, order),
   };
 }
 
@@ -155,12 +156,12 @@ export function coalesceTagValue(
 }
 
 function coalesceDictChildren(
-  current: DictChildTagNode[],
-  incoming: DictChildTagNode[],
+  current: TagDictNode,
+  incoming: TagDictNode,
   order: CoalesceOrder,
 ): DictChildTagNode[] {
-  const byCurrent = new Map(current.map((node) => [node.key, node] as const));
-  const byIncoming = new Map(incoming.map((node) => [node.key, node] as const));
+  const byCurrent = dictChildrenIndex(current);
+  const byIncoming = dictChildrenIndex(incoming);
   const keys = new Set([...byCurrent.keys(), ...byIncoming.keys()]);
   const out: DictChildTagNode[] = [];
 
