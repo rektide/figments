@@ -1,168 +1,221 @@
-# Parity Gaps vs Rust Figment
+# Figment Parity Rundown (TypeScript vs Rust)
 
-This document tracks what is implemented in the TypeScript port, what is still
-missing relative to Rust `figment`, and what "complete port" means in concrete
-terms.
+You are right to push for a fuller, sharper parity doc. This version is the
+canonical rundown of what we have, what we do not, and why it matters.
 
-## Scope and goal
+Legend:
 
-- Goal: behavioral parity with Rust `figment` for provider composition,
-  provenance, extraction semantics, and diagnostics.
-- Non-goal: reproducing Rust internals exactly where JS/TS runtime constraints
-  differ.
-- Current state: core composition works, but several high-value parity areas
-  are still partial.
+- `Aligned`: behavior is intentionally close to Rust Figment.
+- `Partial`: meaningful implementation exists, but parity gaps remain.
+- `Missing`: capability not present yet.
 
-## Parity status by area
+## Snapshot summary
 
-## 1) Provider composition semantics
+- Composition semantics (`join`/`merge`/`adjoin`/`admerge`): `Aligned`
+- Metadata and provenance plumbing: `Partial`
+- Provider metadata-map contract: `Partial` (Figment-specific, not provider-general)
+- Source model parity: `Partial`
+- Metadata builder ergonomics: `Missing`
+- Error + diagnostic parity: `Partial`
+- Value + magic-value parity: `Missing`
+- Provider feature parity: `Partial`
+- Parity fixture/testing depth: `Partial`
 
-Implemented:
+## 1) Composition semantics
 
-- `join`, `adjoin`, `merge`, `admerge`
-- profile selection with `default` and `global` precedence
-- built-in providers: `Serialized`, `Env`, `Data` (`Json`, `Toml`, `Yaml`)
-
-Gaps:
-
-- Full edge-case parity for mixed-type collisions across nested structures.
-- Exact precedence rules for all array/dict replacement scenarios.
-- Full provider surface parity vs Rust docs and examples.
-
-## 2) Metadata and tag provenance
+Status: `Aligned`
 
 Implemented:
 
-- Per-provider metadata (`name`, optional `source`, interpolator).
-- Tag plumbing exists and coalesces through merges.
-- Metadata lookup APIs (`findMetadata(path)`, `getMetadata(tag)`).
+- four strategies with expected conflict behavior
+- recursive dict coalescing
+- array strategy differences match Figment intent
+- profile selection and `default` + `global` overlay behavior
 
-Gaps:
+Needs more proof:
 
-- Not all extraction/error paths are guaranteed to carry winning leaf tag.
-- No Rust-equivalent "provider added at call site" location metadata.
-- Provenance shape is simpler than Rust `Tag` + `Metadata` model.
-- No complete public tagged-value API analogous to Rust value APIs.
+- broader edge fixtures for mixed-type nested collisions
 
-Why it matters:
+## 2) Metadata and provenance core
 
-- Precise "which source won this key" answers.
-- Better diagnostics for layered config stacks.
-- Required for magic-value parity.
-
-## 3) Error model and multi-error chaining
+Status: `Partial`
 
 Implemented:
 
-- `FigmentError` kind/message/path plus chaining support.
-- Missing-field and generic provider failure reporting.
+- first-class tag tree with container-level tags (`dict`, `array`, `scalar`)
+- `findMetadata(path)` and `getMetadata(tag)`
+- container path metadata support (Figment-like direction)
+- collision-safe tag remapping when composing figments
+- `provideLocation` captured when adding providers
+
+Still different from Rust:
+
+- Rust tag model embeds profile bits and metadata id in a single opaque tag.
+- TS tag is numeric and profile is tracked separately.
+- `provideLocation` uses stack parsing in TS; Rust uses `Location::caller()`.
+
+Why this matters:
+
+- correct attribution for "which source won this key"
+- reliable provenance under deeply composed figments
+
+## 3) Provider metadata-map contract (explicit callout)
+
+Status: `Partial`
+
+Rust behavior:
+
+- `Provider::__metadata_map()` lets any provider provide a metadata map.
+- Figment merges this map before coalescing values/tags.
+
+Current TS behavior:
+
+- metadata-map preservation works when merging `Figment` into `Figment`.
+- there is no provider-general metadata-map hook yet.
+
+Gap:
+
+- custom providers cannot currently contribute preserved metadata maps directly.
+
+What to implement:
+
+- add a provider hook (TS equivalent to `__metadata_map()`), for example:
+  - `metadataMap?(): Map<Tag, Metadata>`
+  - optional companion hook for tag-tree-aware data if needed
+- make compose path generic (not `instanceof Figment` special-case)
+
+Acceptance criteria:
+
+- non-Figment providers can preserve metadata maps through composition
+- no provenance collapse under provider chains
+
+## 4) Source model parity (explicit callout)
+
+Status: `Partial`
+
+Rust model:
+
+- `Source::File(PathBuf)`
+- `Source::Code(Location)`
+- `Source::Custom(String)`
+- helper methods and display behavior (`file_path`, `code_location`, `custom`)
+
+Current TS model:
+
+- structured source with open `kind` + `value`
+- known helpers for file/env/inline
+- open source-kind extensibility for external providers
 
 Gaps:
 
-- No full Rust-style aggregate error iteration/count semantics.
-- Chain ordering and formatting are still simplified.
-- Partial context attachment (`tag`, `profile`, `metadata`) in all failure paths.
-- No complete equivalence for serde-like type mismatch diagnostics.
+- no typed source helper API parity (`filePath()`, `codeLocation()`, etc.)
+- no Rust-like display normalization (for example relative file display)
+- no `Code` source modeled as a typed variant separate from `provideLocation`
 
-## 4) Value system parity (`src/value/*` in Rust)
+What to implement:
+
+- promote source to richer discriminated union shape (while keeping extensibility)
+- add typed helpers and consistent formatter rules
+
+## 5) Metadata builder ergonomics (explicit callout)
+
+Status: `Missing`
+
+Rust ergonomics:
+
+- `Metadata::named(...)`
+- `.source(...)`
+- `.interpolater(...)`
+- fluent composability on metadata itself
+
+Current TS ergonomics:
+
+- helper constructors (`metadataNamed`, `metadataFromFile`, etc.)
+- direct assignment for interpolation overrides in providers
+
+Gap:
+
+- no fluent builder API, less expressive for custom providers
+
+What to implement:
+
+- fluent metadata builders, for example:
+  - `MetadataBuilder.named("...").source(...).interpolater(...).build()`
+- or immutable chain helpers on metadata objects
+
+## 6) Error and diagnostics parity
+
+Status: `Partial`
 
 Implemented:
 
-- Generic TS value tree (`ConfigValue`, `ConfigDict`) and path traversal.
+- `FigmentError` carries path/profile/tag/metadata + chaining
+- source-aware string formatting
 
 Gaps:
 
-- Missing Rust value model richness (`Value`, numeric distinctions, parse/escape
-  helpers, dedicated serializers/deserializers).
-- No equivalent for Rust "magic" value behaviors:
-  - `Tagged`
-  - `RelativePathBuf`
-  - other provenance-aware value helpers
+- not full Rust-style aggregate behavior (count/iterator/order semantics)
+- incomplete deep retag/resolution parity across all decode paths
+- less complete typed mismatch diagnostics than serde-backed Rust path
 
-## 5) Extraction semantics
+## 7) Value layer and magic values (explicit callout)
+
+Status: `Missing`
+
+Rust capabilities not yet present:
+
+- `Tagged` magic extraction patterns
+- `RelativePathBuf` source-aware path behavior
+- broader magic-value ecosystem depending on metadata fidelity
+
+Why this matters:
+
+- metadata parity is only fully useful if magic consumers can leverage it
+
+## 8) Provider feature parity
+
+Status: `Partial`
 
 Implemented:
 
-- `extract`, `extractLossy`, `extractInner`, `extractInnerLossy`
-- optional decode callback
+- `Serialized`, `Env`, `Data` (`Json`, `Toml`, `Yaml`)
 
 Gaps:
 
-- Not serde-equivalent typed extraction behavior.
-- No deep typed diagnostics comparable to Rust deserialization errors.
-- Lossy conversion rules are pragmatic, not parity-validated against Rust.
+- no `YamlExtended` parity
+- insufficient edge-case fixture coverage for env/data source behavior
 
-## 6) Provider feature parity
+## 9) Testing and verification parity
+
+Status: `Partial`
 
 Implemented:
 
-- `Env` with prefix/filter/map/split/only/ignore
-- `Data` for JSON/TOML/YAML strings/files
-- nested profile parsing for `Data`
+- unit tests for composition + provenance behavior
 
 Gaps:
 
-- No `YamlExtended` merge-key behavior parity.
-- Potential behavior differences in environment parsing edge cases.
-- File search and metadata source behavior not fully parity-tested vs Rust.
+- no parity fixture suite matching broad Rust examples/docs
+- no `Jail`-like isolation harness equivalent
+- limited regression fixtures for metadata-map provider-general behavior
 
-## 7) Developer/test infrastructure parity
+## Priority implementation order
 
-Implemented:
+1. Provider-general metadata-map contract (close biggest provenance architecture gap).
+2. Source model parity upgrades (typed source helpers + display semantics).
+3. Metadata builder ergonomics (fluent provider-facing API).
+4. Error aggregate and deep retag/resolution parity.
+5. Magic-value parity (`Tagged`, source-aware path helpers).
+6. `YamlExtended` and provider edge fixtures.
+7. Expanded parity fixture matrix.
 
-- `vitest` tests for core semantics
-- lint/type/build scripts
+## Close-parity checklist
 
-Gaps:
-
-- No Rust `Jail` equivalent test harness.
-- No parity fixture suite copied from Rust examples/docs.
-- No systematic "Rust behavior snapshot" cross-check tests.
-
-## Why the port is currently lighter
-
-- The first cut prioritized working composition APIs over full internal parity.
-- Rust serde/value internals do not map directly to TS without deliberate
-  adapter layers.
-- Error/provenance completeness needs broader infrastructure than the initial
-  implementation pass.
-
-## What "more complete port" means (acceptance criteria)
-
-## Provenance
-
-- Winning value at any key has deterministic, queryable source metadata.
-- All extraction failures include stable path + profile + source attribution.
-- Tag lineage survives all coalesce operations and nested lookups.
-
-## Errors
-
-- Multi-error chains are iterable and countable with deterministic order.
-- Formatting includes interpolated key, source, and provider context.
-- Provider and extraction failures compose into a single coherent error view.
-
-## Values and extraction
-
-- Public value API includes tagged/provenance-aware access patterns.
-- Extraction behavior is documented and parity-tested against Rust examples.
-- Lossy conversions are explicit, test-covered, and predictable.
-
-## Providers
-
-- `YamlExtended` behavior exists and is tested.
-- Env and Data edge cases match Rust behavior for representative fixtures.
-- Nested profile parsing and file-source metadata parity are verified.
-
-## Test parity
-
-- A parity test suite mirrors key Rust behaviors (merge/join precedence,
-  profiles, env parsing, metadata attribution, chained errors).
-
-## Workstreams to close the gaps
-
-- Workstream A: finalize provenance propagation and tagged lookups across all
-  extraction/error paths.
-- Workstream B: upgrade error aggregate model and formatter to Rust-like output.
-- Workstream C: implement value-layer APIs needed for magic/tagged semantics.
-- Workstream D: complete provider parity (`YamlExtended`, env/file edge cases).
-- Workstream E: add parity fixtures/tests derived from Rust docs and behavior.
+- [ ] metadata never collapses across provider/figment composition
+- [ ] provider metadata-map hook exists and is used generically
+- [ ] source model supports typed helper access and stable formatting rules
+- [ ] metadata builder ergonomics are fluent and documented
+- [ ] error aggregate behavior is deterministic and rich
+- [ ] magic-value features relying on metadata are implemented
+- [ ] provider edge behavior is fixture-validated against Rust expectations
+- [ ] intentional deviations are explicit and documented

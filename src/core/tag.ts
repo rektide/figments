@@ -101,3 +101,50 @@ export function cloneTagTree(value: TagTree): TagTree {
 export function cloneTagDictNode(value: TagDictNode): TagDictNode {
   return cloneTagTree(value) as TagDictNode;
 }
+
+export function cloneProfileTagMap(map: ProfileTagMap): ProfileTagMap {
+  const out: ProfileTagMap = {};
+  for (const [profile, node] of Object.entries(map)) {
+    out[profile] = cloneTagDictNode(node);
+  }
+
+  return out;
+}
+
+export function remapProfileTagMap(
+  map: ProfileTagMap,
+  tagMap: ReadonlyMap<Tag, Tag>,
+): ProfileTagMap {
+  const out: ProfileTagMap = {};
+  for (const [profile, node] of Object.entries(map)) {
+    out[profile] = remapTagTree(node, tagMap) as TagDictNode;
+  }
+
+  return out;
+}
+
+function remapTagTree(value: TagTree, tagMap: ReadonlyMap<Tag, Tag>): TagTree {
+  const tag = tagMap.get(value.tag) ?? value.tag;
+  if (isTagArrayNode(value)) {
+    return {
+      kind: "array",
+      tag,
+      items: value.items.map((item) => remapTagTree(item, tagMap)),
+    };
+  }
+
+  if (isTagDictNode(value)) {
+    return {
+      kind: "dict",
+      tag,
+      entries: Object.fromEntries(
+        Object.entries(value.entries).map(([key, item]) => [key, remapTagTree(item, tagMap)]),
+      ),
+    };
+  }
+
+  return {
+    kind: "scalar",
+    tag,
+  };
+}

@@ -15,7 +15,9 @@ import type { ConfigDict, ConfigValue, ProfileMap } from "./core/types.ts";
 import { deepClone, isConfigDict } from "./core/types.ts";
 import {
   buildTagProfileMap,
+  cloneProfileTagMap,
   cloneTagDictNode,
+  remapProfileTagMap,
   type ProfileTagMap,
   type Tag,
   type TagDictNode,
@@ -47,7 +49,7 @@ export class Figment implements Provider {
   }
 
   public static from(provider: Provider): Figment {
-    return new Figment().merge(provider);
+    return new Figment().provide(provider, "merge", captureProvideLocation());
   }
 
   public metadata(): Metadata {
@@ -66,8 +68,20 @@ export class Figment implements Provider {
     return this.activeProfile;
   }
 
+  public selectedProfile(): string {
+    return this.activeProfile;
+  }
+
   public metadataEntries(): Metadata[] {
     return [...this.metadataByTag.values()];
+  }
+
+  public metadataMap(): Map<Tag, Metadata> {
+    return new Map(this.metadataByTag.entries());
+  }
+
+  public tagMap(): ProfileTagMap {
+    return cloneProfileTagMap(this.tags);
   }
 
   public getMetadata(tag: Tag): Metadata | undefined {
@@ -85,19 +99,19 @@ export class Figment implements Provider {
   }
 
   public join(provider: Provider): Figment {
-    return this.provide(provider, "join");
+    return this.provide(provider, "join", captureProvideLocation());
   }
 
   public adjoin(provider: Provider): Figment {
-    return this.provide(provider, "adjoin");
+    return this.provide(provider, "adjoin", captureProvideLocation());
   }
 
   public merge(provider: Provider): Figment {
-    return this.provide(provider, "merge");
+    return this.provide(provider, "merge", captureProvideLocation());
   }
 
   public admerge(provider: Provider): Figment {
-    return this.provide(provider, "admerge");
+    return this.provide(provider, "admerge", captureProvideLocation());
   }
 
   public async profiles(): Promise<string[]> {
@@ -183,11 +197,7 @@ export class Figment implements Provider {
     }
   }
 
-  private provide(provider: Provider, order: CoalesceOrder): Figment {
-    const tag = this.nextTag;
-    this.nextTag += 1;
-    this.metadataByTag.set(tag, provider.metadata());
-
+  private provide(provider: Provider, order: CoalesceOrder, provideLocation?: string): Figment {
     const providerProfile = provider.selectedProfile?.();
     if (providerProfile) {
       this.activeProfile = profileCoalesce(
@@ -202,17 +212,37 @@ export class Figment implements Provider {
         return;
       }
 
+      let contextTag: Tag | undefined;
+      let contextMetadata: Metadata | undefined;
+
       try {
-        const incoming = normalizeProfiles(await provider.data());
-        const incomingTags = buildTagProfileMap(incoming, tag);
+        let incoming: ProfileMap;
+        let incomingTags: ProfileTagMap;
+
+        const importedMetadataMap = provider.metadataMap?.();
+        const importedTagMap = provider.tagMap?.();
+
+        if (importedMetadataMap && importedTagMap) {
+          const remap = this.importMetadataMap(importedMetadataMap);
+          incoming = normalizeProfiles(await provider.data());
+          incomingTags = remapProfileTagMap(cloneProfileTagMap(importedTagMap), remap);
+        } else {
+          contextTag = this.allocateTag();
+          contextMetadata = provider.metadata();
+          contextMetadata.provideLocation = provideLocation;
+          this.metadataByTag.set(contextTag, contextMetadata);
+          incoming = normalizeProfiles(await provider.data());
+          incomingTags = buildTagProfileMap(incoming, contextTag);
+        }
+
         this.values = coalesceProfiles(this.values, incoming, order);
         this.tags = coalesceTagProfiles(this.tags, incomingTags, order);
       } catch (error) {
         const figmentError =
           error instanceof FigmentError
             ? error.withContext({
-                metadata: this.metadataByTag.get(tag),
-                tag,
+                metadata: contextMetadata,
+                tag: contextTag,
                 profile: this.activeProfile,
               })
             : FigmentError.message(error instanceof Error ? error.message : String(error));
@@ -222,6 +252,35 @@ export class Figment implements Provider {
     });
 
     return this;
+  }
+
+  private allocateTag(): Tag {
+    while (this.metadataByTag.has(this.nextTag)) {
+      this.nextTag += 1;
+    }
+
+    const tag = this.nextTag;
+    this.nextTag += 1;
+    return tag;
+  }
+
+  private importMetadataMap(map: Map<number, Metadata>): Map<Tag, Tag> {
+    const remap = new Map<Tag, Tag>();
+    for (const [tag, metadata] of map.entries()) {
+      if (!this.metadataByTag.has(tag)) {
+        this.metadataByTag.set(tag, metadata);
+        if (tag >= this.nextTag) {
+          this.nextTag = tag + 1;
+        }
+        continue;
+      }
+
+      const replacement = this.allocateTag();
+      remap.set(tag, replacement);
+      this.metadataByTag.set(replacement, metadata);
+    }
+
+    return remap;
   }
 
   private async merged(): Promise<ConfigDict> {
@@ -330,4 +389,25 @@ function emptyTagDictNode(): TagDictNode {
     tag: 0,
     entries: {},
   };
+}
+
+function captureProvideLocation(): string | undefined {
+  const stack = new Error().stack;
+  if (!stack) {
+    return undefined;
+  }
+
+  const lines = stack
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trim());
+  for (const line of lines) {
+    if (line.includes("captureProvideLocation") || line.includes("/src/figment.ts")) {
+      continue;
+    }
+
+    return line.replace(/^at\s+/, "");
+  }
+
+  return undefined;
 }

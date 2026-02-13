@@ -9,6 +9,7 @@ import { Env } from "../src/providers/env.ts";
 import { Serialized } from "../src/providers/serialized.ts";
 import { Toml } from "../src/providers/data.ts";
 import type { Provider } from "../src/provider.ts";
+import type { ProfileTagMap, Tag } from "../src/core/tag.ts";
 import type { ConfigDict } from "../src/core/types.ts";
 import { metadataNamed } from "../src/core/metadata.ts";
 
@@ -24,6 +25,41 @@ class NamedProvider implements Provider {
 
   public data() {
     return { default: this.payload };
+  }
+}
+
+class TaggedEntryProvider implements Provider {
+  public metadata() {
+    return metadataNamed("TaggedEntryProvider");
+  }
+
+  public data() {
+    return {
+      default: {
+        alpha: "from-alpha",
+        beta: "from-beta",
+      },
+    };
+  }
+
+  public metadataMap() {
+    return new Map<Tag, ReturnType<typeof metadataNamed>>([
+      [41, metadataNamed("AlphaSource")],
+      [42, metadataNamed("BetaSource")],
+    ]);
+  }
+
+  public tagMap(): ProfileTagMap {
+    return {
+      default: {
+        kind: "dict",
+        tag: 41,
+        entries: {
+          alpha: { kind: "scalar", tag: 41 },
+          beta: { kind: "scalar", tag: 42 },
+        },
+      },
+    };
   }
 }
 
@@ -133,6 +169,27 @@ describe("figment merge behavior", () => {
   it("returns undefined metadata for missing paths", async () => {
     const figment = Figment.new().join(new NamedProvider("BaseProvider", { name: "base" }));
     expect(await figment.findMetadata("missing.key")).toBeUndefined();
+  });
+
+  it("preserves inner figment metadata when merging figments", async () => {
+    const outer = Figment.new().join(new NamedProvider("OuterProvider", { outer: "value" }));
+    const inner = Figment.new().join(new NamedProvider("InnerProvider", { inner: "value" }));
+
+    const merged = outer.merge(inner);
+    expect((await merged.findMetadata("outer"))?.name).toBe("OuterProvider");
+    expect((await merged.findMetadata("inner"))?.name).toBe("InnerProvider");
+  });
+
+  it("records provideLocation when providers are merged", async () => {
+    const figment = Figment.new().merge(new NamedProvider("BaseProvider", { name: "base" }));
+    const metadata = await figment.findMetadata("name");
+    expect(metadata?.provideLocation).toContain("figment.test.ts");
+  });
+
+  it("supports provider-supplied metadata map and per-entry tags", async () => {
+    const figment = Figment.new().merge(new TaggedEntryProvider());
+    expect((await figment.findMetadata("alpha"))?.name).toBe("AlphaSource");
+    expect((await figment.findMetadata("beta"))?.name).toBe("BetaSource");
   });
 });
 
