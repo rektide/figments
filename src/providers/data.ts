@@ -8,7 +8,7 @@ import type { Provider } from "../provider.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "../core/types.ts";
 import { isConfigDict } from "../core/types.ts";
 import { DEFAULT_PROFILE, normalizeProfile } from "../profile.ts";
-import { metadataFrom, metadataNamed, type Metadata } from "../core/metadata.ts";
+import { metadataFromFile, metadataFromInline, type Metadata } from "../core/metadata.ts";
 
 export interface Format {
   readonly name: string;
@@ -72,10 +72,13 @@ export class Data<F extends Format> implements Provider {
 
   public metadata(): Metadata {
     if (this.source.type === "string") {
-      return metadataNamed(`${this.format.name} source string`);
+      return metadataFromInline(
+        `${this.format.name} source string`,
+        `${this.format.name} inline string`,
+      );
     }
 
-    return metadataFrom(`${this.format.name} file`, this.source.path);
+    return metadataFromFile(`${this.format.name} file`, this.source.path);
   }
 
   public async data(): Promise<ProfileMap> {

@@ -3,7 +3,7 @@ import type { Provider } from "./provider.ts";
 import {
   coalesceDict,
   coalesceProfiles,
-  coalesceTagDict,
+  coalesceTagDictNode,
   coalesceTagProfiles,
   profileCoalesce,
   type CoalesceOrder,
@@ -13,7 +13,15 @@ import { findTag, findValue } from "./core/path.ts";
 import type { Metadata } from "./core/metadata.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "./core/types.ts";
 import { deepClone, isConfigDict } from "./core/types.ts";
-import { buildTagProfileMap, type ProfileTagMap, type Tag, type TagTree } from "./core/tag.ts";
+import {
+  buildTagProfileMap,
+  cloneTagDictNode,
+  type ProfileTagMap,
+  type Tag,
+  type TagDictNode,
+  type TagTree,
+  isTagDictNode,
+} from "./core/tag.ts";
 
 export class Figment implements Provider {
   private activeProfile: string;
@@ -155,8 +163,8 @@ export class Figment implements Provider {
         const tree = this.tags[profile] ? findTag(this.tags[profile], path) : undefined;
         if (isConfigDict(value)) {
           map[profile] = deepClone(value);
-          if (tree && typeof tree === "object" && !Array.isArray(tree)) {
-            tags[profile] = deepClone(tree) as ProfileTagMap[string];
+          if (tree && isTagDictNode(tree)) {
+            tags[profile] = cloneTagDictNode(tree);
           }
         }
       }
@@ -220,22 +228,22 @@ export class Figment implements Provider {
     return (await this.mergedState()).value;
   }
 
-  private async mergedState(): Promise<{ value: ConfigDict; tags: ProfileTagMap[string] }> {
+  private async mergedState(): Promise<{ value: ConfigDict; tags: TagDictNode }> {
     await this.ready();
 
     const defaults = this.values[DEFAULT_PROFILE] ?? {};
     const globals = this.values[GLOBAL_PROFILE] ?? {};
     const selected = this.values[this.activeProfile];
 
-    const defaultTags = this.tags[DEFAULT_PROFILE] ?? {};
-    const globalTags = this.tags[GLOBAL_PROFILE] ?? {};
+    const defaultTags = this.tags[DEFAULT_PROFILE] ?? emptyTagDictNode();
+    const globalTags = this.tags[GLOBAL_PROFILE] ?? emptyTagDictNode();
     const selectedTags = this.tags[this.activeProfile];
 
     if (selected && isCustomProfile(this.activeProfile)) {
       return {
         value: coalesceDict(coalesceDict(defaults, selected, "merge"), globals, "merge"),
-        tags: coalesceTagDict(
-          coalesceTagDict(defaultTags, selectedTags ?? {}, "merge"),
+        tags: coalesceTagDictNode(
+          coalesceTagDictNode(defaultTags, selectedTags ?? emptyTagDictNode(), "merge"),
           globalTags,
           "merge",
         ),
@@ -244,7 +252,7 @@ export class Figment implements Provider {
 
     return {
       value: coalesceDict(defaults, globals, "merge"),
-      tags: coalesceTagDict(defaultTags, globalTags, "merge"),
+      tags: coalesceTagDictNode(defaultTags, globalTags, "merge"),
     };
   }
 
@@ -313,29 +321,13 @@ function lossyValue(value: ConfigValue): ConfigValue {
 }
 
 function unwrapTag(tree: TagTree | undefined): Tag | undefined {
-  if (typeof tree === "number") {
-    return tree;
-  }
+  return tree?.tag;
+}
 
-  if (Array.isArray(tree)) {
-    for (const item of tree) {
-      const tag = unwrapTag(item);
-      if (tag !== undefined) {
-        return tag;
-      }
-    }
-
-    return undefined;
-  }
-
-  if (tree && typeof tree === "object") {
-    for (const item of Object.values(tree)) {
-      const tag = unwrapTag(item);
-      if (tag !== undefined) {
-        return tag;
-      }
-    }
-  }
-
-  return undefined;
+function emptyTagDictNode(): TagDictNode {
+  return {
+    kind: "dict",
+    tag: 0,
+    entries: {},
+  };
 }

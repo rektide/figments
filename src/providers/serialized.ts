@@ -1,5 +1,5 @@
 import type { Provider } from "../provider.ts";
-import { metadataNamed } from "../core/metadata.ts";
+import { metadataFromInline } from "../core/metadata.ts";
 import type { Metadata } from "../core/metadata.ts";
 import { DEFAULT_PROFILE, GLOBAL_PROFILE, normalizeProfile } from "../profile.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "../core/types.ts";
@@ -52,7 +52,8 @@ export class Serialized<T = unknown> implements Provider {
   }
 
   public metadata(): Metadata {
-    return metadataNamed("Serialized");
+    const descriptor = this.keyPath ? `serialized value for ${this.keyPath}` : "serialized value";
+    return metadataFromInline("Serialized", descriptor);
   }
 
   public data(): ProfileMap {

@@ -1,4 +1,5 @@
 import type { Metadata } from "./metadata.ts";
+import { formatMetadataSource } from "./metadata.ts";
 
 export class FigmentError extends Error {
   readonly kind: string;
@@ -51,8 +52,9 @@ export class FigmentError extends Error {
 
   public toString(): string {
     const keySuffix = this.path.length > 0 ? ` for key '${this.path.join(".")}'` : "";
+    const source = formatMetadataSource(this.metadata?.source);
     const sourceSuffix = this.metadata?.source
-      ? ` in ${this.metadata.source} ${this.metadata.name}`
+      ? ` in ${source} ${this.metadata.name}`
       : this.metadata
         ? ` in ${this.metadata.name}`
         : "";

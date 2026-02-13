@@ -1,7 +1,13 @@
 import type { ConfigDict, ConfigValue, ProfileMap } from "./types.ts";
 import { deepClone, isConfigDict } from "./types.ts";
-import type { ProfileTagMap, TagDict, TagTree } from "./tag.ts";
-import { isTagDict } from "./tag.ts";
+import {
+  type ProfileTagMap,
+  type TagDict,
+  type TagDictNode,
+  type TagTree,
+  isTagArrayNode,
+  isTagDictNode,
+} from "./tag.ts";
 
 export type CoalesceOrder = "join" | "adjoin" | "merge" | "admerge";
 
@@ -96,15 +102,27 @@ export function coalesceTagProfiles(
 
   for (const key of keys) {
     if (current[key] && incoming[key]) {
-      out[key] = coalesceTagDict(current[key], incoming[key], order);
+      out[key] = coalesceTagDictNode(current[key], incoming[key], order);
     } else if (current[key]) {
-      out[key] = deepCloneTag(current[key]) as TagDict;
+      out[key] = deepCloneTag(current[key]) as TagDictNode;
     } else if (incoming[key]) {
-      out[key] = deepCloneTag(incoming[key]) as TagDict;
+      out[key] = deepCloneTag(incoming[key]) as TagDictNode;
     }
   }
 
   return out;
+}
+
+export function coalesceTagDictNode(
+  current: TagDictNode,
+  incoming: TagDictNode,
+  order: CoalesceOrder,
+): TagDictNode {
+  return {
+    kind: "dict",
+    tag: prefersCurrent(order) ? current.tag : incoming.tag,
+    entries: coalesceTagDict(current.entries, incoming.entries, order),
+  };
 }
 
 export function coalesceTagDict(
@@ -133,13 +151,20 @@ export function coalesceTagValue(
   incoming: TagTree,
   order: CoalesceOrder,
 ): TagTree {
-  if (isTagDict(current) && isTagDict(incoming)) {
-    return coalesceTagDict(current, incoming, order);
+  if (isTagDictNode(current) && isTagDictNode(incoming)) {
+    return coalesceTagDictNode(current, incoming, order);
   }
 
-  if (Array.isArray(current) && Array.isArray(incoming)) {
+  if (isTagArrayNode(current) && isTagArrayNode(incoming)) {
     if (order === "adjoin" || order === "admerge") {
-      return [...deepCloneTag(current), ...deepCloneTag(incoming)];
+      return {
+        kind: "array",
+        tag: prefersCurrent(order) ? current.tag : incoming.tag,
+        items: [
+          ...current.items.map((item) => deepCloneTag(item)),
+          ...incoming.items.map((item) => deepCloneTag(item)),
+        ],
+      };
     }
 
     return order === "join" ? deepCloneTag(current) : deepCloneTag(incoming);
@@ -153,18 +178,33 @@ export function coalesceTagValue(
 }
 
 function deepCloneTag<T extends TagTree>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map((item) => deepCloneTag(item)) as T;
+  if (isTagArrayNode(value)) {
+    return {
+      kind: "array",
+      tag: value.tag,
+      items: value.items.map((item) => deepCloneTag(item)),
+    } as T;
   }
 
-  if (typeof value === "object") {
+  if (isTagDictNode(value)) {
     const out: TagDict = {};
-    for (const [key, item] of Object.entries(value)) {
+    for (const [key, item] of Object.entries(value.entries)) {
       out[key] = deepCloneTag(item);
     }
 
-    return out as T;
+    return {
+      kind: "dict",
+      tag: value.tag,
+      entries: out,
+    } as T;
   }
 
-  return value;
+  return {
+    kind: "scalar",
+    tag: value.tag,
+  } as T;
+}
+
+function prefersCurrent(order: CoalesceOrder): boolean {
+  return order === "join" || order === "adjoin";
 }

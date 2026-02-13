@@ -1,7 +1,7 @@
 import * as TOML from "@iarna/toml";
 
 import type { Provider } from "../provider.ts";
-import { metadataNamed } from "../core/metadata.ts";
+import { metadataFromEnv } from "../core/metadata.ts";
 import type { Metadata } from "../core/metadata.ts";
 import { DEFAULT_PROFILE, GLOBAL_PROFILE, normalizeProfile } from "../profile.ts";
 import { coalesceDict } from "../core/coalesce.ts";
@@ -95,7 +95,8 @@ export class Env implements Provider {
       ? `\`${this.prefixValue.toUpperCase()}\` environment variable(s)`
       : "environment variable(s)";
 
-    const metadata = metadataNamed(base);
+    const selector = this.prefixValue ? `${this.prefixValue.toUpperCase()}*` : "*";
+    const metadata = metadataFromEnv(base, selector);
     metadata.interpolate = (_profile: string, keys: string[]) =>
       keys.map((k) => k.toUpperCase()).join(".");
     return metadata;
