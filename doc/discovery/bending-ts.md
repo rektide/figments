@@ -15,17 +15,138 @@ This document explores architectural options for a new logging library that reta
 
 Keep provider/value model, but make merge policy first-class and key-path aware.
 
-**Why:** Logging config has heterogeneous semantics (`level` replace, `sinks` append-or-keyed-merge, `filters` ordered pipeline).
+### Problem Statement
 
-**Shape:**
-- `config/providers/` source adapters
-- `config/merge/` merge planner + conflict policies
-- `config/provenance/` explain graph
-- `config/schema/` optional typed projection
+Logging configuration has inherently heterogeneous merge semantics across different fields:
 
-**Good when:** You want maximum flexibility and plugin friendliness.
+| Field | Desired Semantics | Why |
+|-------|-------------------|-----|
+| `level` | Replace | Only one effective log level makes sense |
+| `sinks` | Append or keyed-merge | Multiple outputs accumulate; may want deduplication by name |
+| `filters` | Ordered append | Filter order matters; later filters see already-filtered data |
+| `labels` | Deep merge | Merged labels form a combined map |
+| `sampling` | Replace | One sampling policy per context |
 
-**Risk:** Higher engine complexity.
+Figment's current model offers six strategies globally ([`Order` enum](https://github.com/lmmx/figment2/blob/master/src/coalesce.rs#L5-L12)): `Merge`, `Join`, `Adjoin`, `Admerge`, `Zipjoin`, `Zipmerge`. But these apply uniformly at merge time, not per-key-path.
+
+### Key Abstractions
+
+**1. Policy Registry**
+```typescript
+interface MergePolicy {
+  path: string | RegExp;     // e.g., "sinks.*", "level", "labels.**"
+  strategy: 'replace' | 'append' | 'deep-merge' | 'keyed-merge' | 'ordered-append';
+  keyFn?: (item: Value) => string;  // for keyed-merge
+  priority?: number;  // policy precedence when multiple match
+}
+
+interface PolicyRegistry {
+  register(policy: MergePolicy): void;
+  resolve(path: string): MergePolicy;
+}
+```
+
+**2. Policy-Aware Merge Engine**
+```typescript
+interface MergeEngine {
+  merge(target: ValueTree, source: ValueTree, policies: PolicyRegistry): ValueTree;
+  explain(path: string): MergeExplanation;
+}
+
+interface MergeExplanation {
+  path: string;
+  policy: MergePolicy;
+  contributors: Array<{ source: Source; value: Value }>;
+  winner: { source: Source; value: Value };
+}
+```
+
+**3. Path-Aware Coalescing**
+```typescript
+// Extend Figment's Coalescible trait with path context
+interface CoalescibleWithPath {
+  coalesce(other: this, order: Order, path: Path): this;
+}
+```
+
+### Directory Structure
+
+```
+src/
+  config/
+    providers/
+      index.ts           # Provider trait + built-in adapters
+      env.ts             # Environment variable provider
+      file.ts            # File-based provider (toml, json, yaml)
+      cli.ts             # CLI argument provider
+      remote.ts          # Remote config provider (future)
+
+    merge/
+      index.ts           # MergeEngine + Order enum
+      policies.ts        # PolicyRegistry + MergePolicy types
+      coalesce.ts        # Path-aware coalescing logic
+
+    provenance/
+      index.ts           # Provenance tracking system
+      events.ts          # Merge event log
+      explain.ts         # Query API for "why is X = Y?"
+
+    schema/
+      index.ts           # Optional typed projection layer
+      types.ts           # LoggingConfig, SinkConfig, etc.
+```
+
+### API Sketch
+
+```typescript
+// Define logging config with per-field policies
+const loggingPolicies: MergePolicy[] = [
+  { path: 'level', strategy: 'replace' },
+  { path: 'sinks', strategy: 'keyed-merge', keyFn: (s) => s.name },
+  { path: 'filters', strategy: 'ordered-append' },
+  { path: 'labels', strategy: 'deep-merge' },
+  { path: '**', strategy: 'replace' },  // default
+];
+
+// Build config with policies
+const config = Figment.builder()
+  .provider(new EnvProvider({ prefix: 'LOG_' }))
+  .provider(new FileProvider('logging.toml'))
+  .provider(new CliProvider({ flag: '--log-config' }))
+  .policies(loggingPolicies)
+  .build();
+
+// Extract with full provenance
+const effective = config.extract();
+const why = config.explain('sinks.file.level');  // "env:LOG_SINKS_FILE_LEVEL overrode file:logging.toml"
+```
+
+### Trade-offs
+
+| Aspect | Pro | Con |
+|--------|-----|-----|
+| Flexibility | Per-field merge semantics match domain needs | More configuration surface |
+| Predictability | Explicit policies are auditable | Users must understand policy precedence |
+| Provenance | Rich explanations possible | More state to track |
+| Complexity | Centralized merge logic | Learning curve for policy DSL |
+
+### References
+
+- Figment's [`Order` enum](https://github.com/lmmx/figment2/blob/master/src/coalesce.rs#L5-L12) - current merge strategies
+- Figment's [`Coalescible` trait](https://github.com/lmmx/figment2/blob/master/src/coalesce.rs#L14-L17) - how values combine
+- Figment's [`Provider` trait](https://github.com/lmmx/figment2/blob/master/src/provider.rs#L83-L102) - source abstraction
+
+### Good When
+
+- You want maximum flexibility and plugin friendliness
+- Different config fields have fundamentally different merge semantics
+- Operational debugging requires knowing exactly how values combined
+
+### Risk
+
+- Higher engine complexity
+- Policy DSL adds cognitive load
+- Must document precedence rules clearly
 
 ---
 
