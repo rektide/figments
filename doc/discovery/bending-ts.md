@@ -865,16 +865,287 @@ interface ProvenanceOptions {
 
 Replace Figment-style single selected profile with multi-dimensional context resolution.
 
-**Why:** Modern deployments need more than dev/stage/prod (e.g., `env=prod`, `region=us-east`, `tenant=foo`, `mode=audit`).
+### Problem Statement
 
-**Shape:**
-- Context dimensions instead of single profile string
-- Resolution by specificity scoring
-- Composable context layers
+Figment's profile system works well for simple environments (dev/staging/prod), but modern deployments are often multi-dimensional:
 
-**Good when:** Multi-axis deployment targeting is needed.
+| Dimension | Examples |
+|-----------|----------|
+| Environment | dev, staging, prod, canary |
+| Region | us-east-1, eu-west-1, ap-southeast-2 |
+| Tenant | acme-corp, big-bank, startup-x |
+| Mode | normal, audit, debug, maintenance |
+| Feature | enabled, disabled, beta |
+| Deployment | blue, green, canary |
 
-**Risk:** Precedence model must be crystal clear.
+A single "profile" string can't capture this richness. You end up with:
+- Proliferating profiles: `prod-us-east-audit`, `prod-eu-west-normal`, etc.
+- No composable overrides
+- Can't say "all prod regions get X, but us-east-1 also gets Y"
+
+### Key Abstractions
+
+**1. Context Dimensions**
+```typescript
+interface Context {
+  dimensions: Map<string, string | string[]>;
+}
+
+// Example contexts
+const devContext: Context = {
+  dimensions: new Map([
+    ['environment', 'dev'],
+    ['region', 'us-east-1'],
+  ]),
+};
+
+const prodAuditContext: Context = {
+  dimensions: new Map([
+    ['environment', 'prod'],
+    ['region', 'eu-west-1'],
+    ['mode', 'audit'],
+    ['tenant', 'acme-corp'],
+  ]),
+};
+```
+
+**2. Context-Aware Config Blocks**
+```typescript
+interface ContextualConfig {
+  // Base config (always applies)
+  base: LoggingConfig;
+
+  // Context-specific overlays
+  overlays: ConfigOverlay[];
+}
+
+interface ConfigOverlay {
+  // Which contexts this overlay applies to
+  match: ContextMatcher;
+
+  // The config to merge when matched
+  config: Partial<LoggingConfig>;
+
+  // Priority when multiple overlays match
+  priority: number;
+}
+
+interface ContextMatcher {
+  // All specified dimensions must match (AND semantics)
+  environment?: string | string[];
+  region?: string | string[];
+  tenant?: string | string[];
+  mode?: string | string[];
+  // ... arbitrary dimensions
+}
+```
+
+**3. Specificity Scoring**
+```typescript
+interface ResolutionEngine {
+  // Resolve effective config for a given context
+  resolve(context: Context): LoggingConfig;
+
+  // Explain which overlays matched and why
+  explainResolution(context: Context): ResolutionExplanation;
+}
+
+interface ResolutionExplanation {
+  context: Context;
+  matchedOverlays: Array<{
+    overlay: ConfigOverlay;
+    specificity: number;
+    contributed: string[];  // Which paths this overlay contributed
+  }>;
+  effectiveConfig: LoggingConfig;
+}
+```
+
+### Directory Structure
+
+```
+src/
+  context/
+    index.ts           # Context types and utilities
+    dimensions.ts      # Dimension definitions and validation
+    matcher.ts         # Context matching logic
+    resolution.ts      # Overlay resolution engine
+
+  config/
+    base.ts            # Base config definition
+    overlays.ts        # ConfigOverlay types and management
+    merge.ts           # Context-aware merge logic
+```
+
+### API Sketch
+
+```typescript
+// Define config with context-aware overlays
+const config = ContextualLoggingConfig.builder()
+  .base({
+    level: 'info',
+    sinks: [{ type: 'console' }],
+  })
+  .overlay({
+    match: { environment: 'prod' },
+    config: {
+      level: 'warn',
+      sinks: [
+        { type: 'file', path: '/var/log/app.log' },
+      ],
+    },
+  })
+  .overlay({
+    match: { environment: 'prod', region: 'eu-west-1' },
+    config: {
+      // GDPR: don't log PII in EU
+      filters: [{ type: 'pii-redaction' }],
+    },
+  })
+  .overlay({
+    match: { mode: 'audit' },
+    config: {
+      level: 'debug',
+      sinks: [
+        { type: 'file', path: '/var/log/audit.log' },
+      ],
+    },
+  })
+  .overlay({
+    match: { environment: 'prod', mode: 'audit' },
+    config: {
+      // Audit in prod gets extra logging
+      sampling: { enabled: false },
+    },
+    priority: 100,  // Higher priority than mode: audit alone
+  })
+  .build();
+
+// Resolve for a specific context
+const euProdAudit = config.resolve({
+  dimensions: new Map([
+    ['environment', 'prod'],
+    ['region', 'eu-west-1'],
+    ['mode', 'audit'],
+  ]),
+});
+
+// Result:
+// - level = 'debug' (from mode:audit overlay, higher specificity than prod)
+// - sinks = [file:/var/log/app.log, file:/var/log/audit.log] (merged)
+// - filters = [pii-redaction] (from prod+eu-west-1 overlay)
+// - sampling.enabled = false (from prod+audit overlay, priority 100)
+```
+
+### Config File Example
+
+```toml
+# Base config
+level = "info"
+[[sinks]]
+type = "console"
+
+# Overlay: production
+[overlays.prod]
+match = { environment = "prod" }
+level = "warn"
+[[overlays.prod.sinks]]
+type = "file"
+path = "/var/log/app.log"
+
+# Overlay: EU region (GDPR compliance)
+[overlays.eu-gdpr]
+match = { environment = "prod", region = ["eu-west-1", "eu-central-1"] }
+[[overlays.eu-gdpr.filters]]
+type = "pii-redaction"
+
+# Overlay: audit mode
+[overlays.audit]
+match = { mode = "audit" }
+level = "debug"
+[[overlays.audit.sinks]]
+type = "file"
+path = "/var/log/audit.log"
+
+# Overlay: production audit (highest priority)
+[overlays.prod-audit]
+match = { environment = "prod", mode = "audit" }
+priority = 100
+sampling = { enabled = false }
+```
+
+### Specificity Algorithm
+
+```typescript
+function calculateSpecificity(matcher: ContextMatcher, context: Context): number {
+  let score = 0;
+
+  for (const [dimension, value] of Object.entries(matcher)) {
+    const contextValue = context.dimensions.get(dimension);
+
+    // No match if dimension not in context
+    if (contextValue === undefined) return -1;
+
+    // No match if values don't match
+    if (!matches(value, contextValue)) return -1;
+
+    // More specific = higher score
+    // - Single value: 10 points
+    // - Array of values: 5 points (less specific)
+    score += Array.isArray(value) ? 5 : 10;
+  }
+
+  return score;
+}
+
+// Resolution: collect all matching overlays, sort by specificity, merge
+function resolve(config: ContextualConfig, context: Context): LoggingConfig {
+  const matched = config.overlays
+    .map(o => ({ overlay: o, specificity: calculateSpecificity(o.match, context) }))
+    .filter(m => m.specificity >= 0)
+    .sort((a, b) => {
+      // Higher specificity first
+      if (a.specificity !== b.specificity) {
+        return b.specificity - a.specificity;
+      }
+      // Then by explicit priority
+      return (b.overlay.priority ?? 0) - (a.overlay.priority ?? 0);
+    });
+
+  // Merge in order: base, then overlays from least to most specific
+  let result = config.base;
+  for (const { overlay } of matched.reverse()) {
+    result = merge(result, overlay.config);
+  }
+
+  return result;
+}
+```
+
+### Trade-offs
+
+| Aspect | Pro | Con |
+|--------|-----|-----|
+| Flexibility | Multi-dimensional targeting | More complex mental model |
+| Composability | Overlays compose naturally | Debugging resolution can be tricky |
+| Maintenance | Add new dimensions without code changes | Must document precedence clearly |
+| Testability | Can test each overlay independently | Explosion of context combinations to test |
+| Power | Express complex deployment scenarios | Easy to create confusing configs |
+
+### Good When
+
+- Multi-axis deployment targeting is needed
+- You have multiple independent dimensions (env, region, tenant, mode)
+- Overlays should compose rather than proliferate profiles
+- Config needs to express "all X that are also Y" logic
+- Different teams own different dimensions
+
+### Risk
+
+- Precedence model must be crystal clear
+- Resolution can be hard to debug without tooling
+- Easy to create conflicting overlays
+- Documentation burden is higher
 
 ---
 
