@@ -613,16 +613,251 @@ registry.register(elasticsearchPlugin);
 
 Make "why is this value this?" a first-class API from day one.
 
-**Why:** Operational debugging of misconfiguration is painful; provenance should be queryable.
+### Problem Statement
 
-**Shape:**
-- `provenance/events/` immutable merge events
-- `provenance/query/` `explain(path)` API
-- `cli/` `explain-config`, `trace-config`
+Misconfiguration is one of the top sources of production incidents. When logging goes wrong, the questions are always:
 
-**Good when:** Operations/debugging is top priority.
+- "Why is this sink not receiving logs?"
+- "Where did this level come from?"
+- "Which config file set this value?"
+- "Why is this filter not working?"
 
-**Risk:** Memory overhead unless compacted.
+Most config libraries give you the final merged value but lose the "why". Figment's tag system provides foundation, but we can make explainability a first-class, queryable API.
+
+### Key Abstractions
+
+**1. Merge Event Log**
+```typescript
+interface MergeEvent {
+  id: string;                    // Unique event ID
+  timestamp: number;             // When it happened
+  type: 'provide' | 'merge' | 'override' | 'delete';
+
+  path: string;                  // Config path affected
+  provider: ProviderInfo;        // Which provider
+  profile?: string;              // Which profile
+
+  before?: Value;                // Value before (if any)
+  after: Value;                  // Value after
+  policy?: MergePolicy;          // Which merge policy applied
+}
+
+interface ProviderInfo {
+  name: string;                  // e.g., "EnvProvider"
+  source: string;                // e.g., "environment", "logging.toml"
+  location?: string;             // File:line if available
+}
+```
+
+**2. Provenance Index**
+```typescript
+interface ProvenanceIndex {
+  // Query the full history of a path
+  getHistory(path: string): MergeEvent[];
+
+  // Get the effective value and its source
+  getEffective(path: string): EffectiveValue | undefined;
+
+  // Find all values from a specific source
+  getByProvider(provider: string): PathValue[];
+
+  // Find all paths that were overridden
+  getOverrides(): OverrideInfo[];
+}
+
+interface EffectiveValue {
+  path: string;
+  value: Value;
+  source: ProviderInfo;
+  event: MergeEvent;           // The winning event
+  overriddenBy?: ProviderInfo; // If later overridden
+}
+```
+
+**3. Explain API**
+```typescript
+interface ExplainAPI {
+  // Human-readable explanation
+  explain(path: string): string;
+
+  // Machine-readable explanation
+  explainStructured(path: string): Explanation;
+
+  // Full trace for debugging
+  trace(path: string): TraceResult;
+
+  // Diff between two configs
+  diff(other: Config): DiffResult;
+}
+
+interface Explanation {
+  path: string;
+  effective: Value;
+  winner: ProviderInfo;
+  candidates: Array<{
+    provider: ProviderInfo;
+    value: Value;
+    whyRejected?: string;
+  }>;
+  mergePolicy: MergePolicy;
+  timeline: MergeEvent[];
+}
+```
+
+### Directory Structure
+
+```
+src/
+  provenance/
+    index.ts           # Public API exports
+    events.ts          # MergeEvent types and event store
+    index.ts           # ProvenanceIndex implementation
+    query.ts           # Query API for exploring provenance
+    explain.ts         # Human/machine explanation generators
+
+  cli/
+    explain.ts         # `explain-config` command
+    trace.ts           # `trace-config` command
+    diff.ts            # `diff-config` command
+    print.ts           # `print-effective-config` command
+```
+
+### API Sketch
+
+```typescript
+// Load config with full provenance tracking
+const config = await LoggingLibrary.loadConfig({
+  providers: [
+    new EnvProvider({ prefix: 'LOG_' }),
+    new FileProvider('logging.toml'),
+    new FileProvider('logging.override.toml'),
+  ],
+  trackProvenance: true,  // Enable full tracking
+});
+
+// Query: why is level = warn?
+const explanation = config.explain('level');
+console.log(explanation);
+// Output:
+// "level = 'warn' (from env:LOG_LEVEL)
+//  This overrode 'info' from file:logging.toml
+//  Timeline:
+//    1. file:logging.toml set level = 'info'
+//    2. env:LOG_LEVEL overrode with 'warn' (merge policy: replace)"
+
+// Query: where did sinks.file.path come from?
+const trace = config.trace('sinks.file.path');
+console.log(trace);
+// Output:
+// "sinks.file.path = '/var/log/app.log'
+//  Source: file:logging.toml:12:3
+//  Never overridden"
+
+// Query: what did the env provider contribute?
+const envContrib = config.provenance.getByProvider('EnvProvider');
+console.log(envContrib);
+// Output:
+// [
+//   { path: 'level', value: 'warn', source: 'env:LOG_LEVEL' },
+//   { path: 'sinks.console.level', value: 'debug', source: 'env:LOG_SINKS_CONSOLE_LEVEL' },
+// ]
+
+// Query: what values were overridden?
+const overrides = config.provenance.getOverrides();
+console.log(overrides);
+// Output:
+// [
+//   { path: 'level', from: 'file:logging.toml', to: 'env:LOG_LEVEL' },
+// ]
+```
+
+### CLI Commands
+
+```bash
+# Explain a specific config path
+$ logging-lib explain-config level
+level = "warn"
+  Source: environment variable LOG_LEVEL
+  Overrode: "info" from logging.toml
+
+# Trace full resolution for a path
+$ logging-lib trace-config sinks.file
+sinks.file:
+  type: "file"
+  path: "/var/log/app.log"     <- logging.toml:12
+  level: "info"                <- default (logging.toml set "debug" but was overridden)
+  rotation:                    <- logging.toml:14-16
+    type: "daily"
+    keep: 7
+
+# Print effective config with sources
+$ logging-lib print-effective-config --with-sources
+# level = "warn"                        # env:LOG_LEVEL
+# sinks[0].type = "console"             # logging.toml:5
+# sinks[0].level = "debug"              # env:LOG_SINKS_CONSOLE_LEVEL
+# sinks[1].type = "file"                # logging.toml:10
+# sinks[1].path = "/var/log/app.log"    # logging.toml:12
+
+# Diff two configs
+$ logging-lib diff-config logging.toml logging.prod.toml
+- level = "info"
++ level = "warn"
+- sinks[1].path = "/var/log/app.log"
++ sinks[1].path = "/var/log/app.prod.log"
+```
+
+### Memory Considerations
+
+Full provenance tracking can consume significant memory:
+
+```typescript
+// Compact representation for production
+interface CompactEvent {
+  p: string;    // path (interned)
+  v: Value;     // value
+  s: number;    // source ID (interned)
+  t: number;    // event type (enum as number)
+}
+
+// Options for controlling memory
+interface ProvenanceOptions {
+  // Track full history vs. just effective values
+  fullHistory: boolean;
+
+  // Keep only last N events per path
+  maxHistoryPerPath: number;
+
+  // Intern strings to save memory
+  internStrings: boolean;
+
+  // Compact value representation
+  compactValues: boolean;
+}
+```
+
+### Trade-offs
+
+| Aspect | Pro | Con |
+|--------|-----|-----|
+| Debugging | Can answer "why" questions definitively | More memory/state to track |
+| Transparency | Config resolution is fully auditable | More complex implementation |
+| Operations | CLI tools for on-call debugging | Must expose carefully to avoid info leaks |
+| Performance | Can be tuned with options | Overhead even when minimized |
+
+### Good When
+
+- Operations/debugging is top priority
+- Config is complex with multiple sources
+- "Why is this value X?" is a common support question
+- Compliance requires audit trails
+- Multi-team ownership of config sources
+
+### Risk
+
+- Memory overhead unless compacted
+- Must be careful what sensitive data appears in provenance
+- API surface for querying can become complex
+- Performance overhead if not carefully implemented
 
 ---
 
