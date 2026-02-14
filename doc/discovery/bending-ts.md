@@ -377,15 +377,235 @@ const v1ToV2: Migration = {
 
 Split config into stable core schema and dynamic extension plane.
 
-**Why:** Logging ecosystems often need unknown third-party sinks/processors.
+### Problem Statement
 
-**Shape:**
-- `core/` typed (level, outputs, format, sampling)
-- `extensions/` dynamic value trees + capability validation
+Logging ecosystems face a fundamental tension:
 
-**Good when:** Plugin ecosystem is strategic.
+- **Core config** (levels, formats, sampling) is stable and benefits from strong typing
+- **Extension config** (third-party sinks, custom processors, vendor integrations) is dynamic and unknown at compile time
 
-**Risk:** Two validation modes to reason about.
+Forcing everything into one model means either:
+- Making everything dynamic (lose type safety)
+- Making everything typed (can't support plugins)
+- Endless special-case fields (schema bloat)
+
+A dual-plane architecture explicitly separates these concerns.
+
+### Key Abstractions
+
+**1. Core Plane (Typed)**
+```typescript
+// Stable, versioned, typed config
+interface CoreLoggingConfig {
+  version: string;
+  level: Level;
+  format: FormatConfig;
+  sampling?: SamplingConfig;
+  sinks: CoreSinkConfig[];  // Built-in sink types only
+}
+
+type CoreSinkConfig =
+  | { type: 'console'; level?: Level; format?: FormatConfig }
+  | { type: 'file'; path: string; level?: Level; rotation?: RotationConfig }
+  | { type: 'network'; host: string; port: number; level?: Level };
+```
+
+**2. Extension Plane (Dynamic)**
+```typescript
+// Dynamic, plugin-specific config
+interface ExtensionConfig {
+  plugins: PluginConfig[];
+}
+
+interface PluginConfig {
+  // Plugin identifier - must be registered
+  plugin: string;
+
+  // Capability this plugin provides
+  capability: 'sink' | 'filter' | 'formatter' | 'processor';
+
+  // Plugin-specific config (validated by plugin, not core)
+  config: Record<string, unknown>;
+
+  // Optional: allow plugin to specify which sinks it attaches to
+  attachTo?: string[];
+}
+```
+
+**3. Plugin Registry**
+```typescript
+interface Plugin {
+  name: string;
+  version: string;
+  capabilities: Capability[];
+
+  // Plugin validates its own config
+  validateConfig(config: unknown): Result<void, PluginError>;
+
+  // Plugin creates its runtime component
+  createSink?(config: unknown): Sink;
+  createFilter?(config: unknown): Filter;
+  createFormatter?(config: unknown): Formatter;
+}
+
+interface PluginRegistry {
+  register(plugin: Plugin): void;
+  get(name: string): Plugin | undefined;
+  getByCapability(cap: Capability): Plugin[];
+}
+```
+
+### Directory Structure
+
+```
+src/
+  core/
+    index.ts           # CoreLoggingConfig + built-in sinks
+    types.ts           # Level, Format, Sampling, etc.
+    validation.ts      # Core-only validation rules
+    defaults.ts        # Core defaults
+
+  extensions/
+    index.ts           # ExtensionConfig + PluginRegistry
+    types.ts           # PluginConfig, Capability types
+    registry.ts        # Plugin registration system
+    loader.ts          # Dynamic plugin loading (if applicable)
+
+  builtins/
+    sinks/
+      console.ts       # Built-in console sink
+      file.ts          # Built-in file sink
+      network.ts       # Built-in network sink
+    filters/
+      level.ts         # Built-in level filter
+      sample.ts        # Built-in sampling filter
+
+  plugins/
+    # Example third-party plugins (not in core)
+    elasticsearch.ts   # Elasticsearch sink plugin
+    splunk.ts          # Splunk sink plugin
+    custom-formatter.ts
+```
+
+### API Sketch
+
+```typescript
+// Core config is strongly typed
+const config = await LoggingLibrary.loadConfig({
+  providers: [new FileProvider('logging.toml')],
+});
+
+// config.core is fully typed
+console.log(config.core.level);  // TypeScript knows this
+console.log(config.core.sinks[0].type);  // 'console' | 'file' | 'network'
+
+// Extensions are dynamic but validated by plugins
+for (const plugin of config.extensions.plugins) {
+  const impl = registry.get(plugin.plugin);
+  if (!impl) {
+    throw new Error(`Unknown plugin: ${plugin.plugin}`);
+  }
+
+  // Plugin validates its own config
+  const result = impl.validateConfig(plugin.config);
+  if (!result.ok) {
+    throw new Error(`Plugin ${plugin.plugin} config invalid: ${result.error}`);
+  }
+
+  // Create runtime component
+  if (plugin.capability === 'sink') {
+    const sink = impl.createSink!(plugin.config);
+    logger.addSink(sink);
+  }
+}
+```
+
+### Example Config File
+
+```toml
+# Core config (validated by library)
+level = "info"
+format = { type = "json" }
+
+[[sinks]]
+type = "console"
+level = "debug"
+
+[[sinks]]
+type = "file"
+path = "/var/log/app.log"
+rotation = { type = "daily", keep = 7 }
+
+# Extension config (validated by plugins)
+[[plugins]]
+plugin = "elasticsearch-sink"
+capability = "sink"
+config = { host = "es.example.com", index = "app-logs" }
+
+[[plugins]]
+plugin = "pii-filter"
+capability = "filter"
+config = { patterns = ["ssn", "credit-card"] }
+```
+
+### Plugin Implementation Example
+
+```typescript
+// elasticsearch-sink plugin
+const elasticsearchPlugin: Plugin = {
+  name: 'elasticsearch-sink',
+  version: '1.0.0',
+  capabilities: ['sink'],
+
+  validateConfig: (config: unknown) => {
+    const schema = z.object({
+      host: z.string(),
+      port: z.number().optional().default(9200),
+      index: z.string(),
+      apiKey: z.string().optional(),
+    });
+
+    const result = schema.safeParse(config);
+    if (!result.success) {
+      return { ok: false, error: result.error.message };
+    }
+    return { ok: true };
+  },
+
+  createSink: (config: unknown) => {
+    const { host, port, index, apiKey } = config as ElasticsearchConfig;
+    return new ElasticsearchSink({ host, port, index, apiKey });
+  },
+};
+
+// Register plugin
+registry.register(elasticsearchPlugin);
+```
+
+### Trade-offs
+
+| Aspect | Pro | Con |
+|--------|-----|-----|
+| Extensibility | Third parties can add sinks/filters without core changes | Plugin quality varies |
+| Type Safety | Core remains fully typed | Extensions are dynamic |
+| Complexity | Clear separation of concerns | Two validation paths to understand |
+| Distribution | Plugins can be separate packages | Plugin discovery/loading complexity |
+| Maintenance | Core stays stable | Plugin API must remain compatible |
+
+### Good When
+
+- Plugin ecosystem is strategic
+- Third parties need to add sinks/processors
+- Core config should stay stable and small
+- You want to support vendor-specific integrations
+- Users have custom logging needs beyond builtins
+
+### Risk
+
+- Two validation modes to reason about
+- Plugin compatibility across versions
+- Plugin discovery/loading complexity
+- Need clear plugin API contract
 
 ---
 
