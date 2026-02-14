@@ -1,7 +1,13 @@
 //#region src/core/metadata.d.ts
+type MetadataSourceKind = string;
+interface MetadataSource {
+  kind: MetadataSourceKind;
+  value: string;
+}
 interface Metadata {
   name: string;
-  source?: string;
+  source?: MetadataSource;
+  provideLocation?: string;
   interpolate: (profile: string, keys: string[]) => string;
 }
 //#endregion
@@ -14,15 +20,45 @@ interface ConfigArray extends Array<ConfigValue> {}
 type ConfigValue = ConfigPrimitive | ConfigArray | ConfigDict;
 type ProfileMap = Record<string, ConfigDict>;
 //#endregion
+//#region src/core/tag.d.ts
+interface Tag {
+  metadataId: number;
+  profile: string;
+}
+interface BaseTagNode {
+  kind: "scalar" | "array" | "dict";
+  tag: Tag;
+  key?: string;
+}
+interface TagScalarNode extends BaseTagNode {
+  kind: "scalar";
+}
+interface TagArrayNode extends BaseTagNode {
+  kind: "array";
+  children: TagNode[];
+}
+interface TagDictNode extends BaseTagNode {
+  kind: "dict";
+  children: DictChildTagNode[];
+}
+type TagNode = TagScalarNode | TagArrayNode | TagDictNode;
+type DictChildTagNode = (TagScalarNode & {
+  key: string;
+}) | (TagArrayNode & {
+  key: string;
+}) | (TagDictNode & {
+  key: string;
+});
+type ProfileTagMap = Record<string, TagDictNode>;
+//#endregion
 //#region src/provider.d.ts
 interface Provider {
   metadata(): Metadata;
   data(): ProfileMap | Promise<ProfileMap>;
   selectedProfile?(): string | undefined;
+  metadataMap?(): Map<number, Metadata>;
+  tagMap?(): ProfileTagMap;
 }
-//#endregion
-//#region src/core/tag.d.ts
-type Tag = number;
 //#endregion
 //#region src/figment.d.ts
 declare class Figment implements Provider {
@@ -39,7 +75,10 @@ declare class Figment implements Provider {
   metadata(): Metadata;
   data(): Promise<ProfileMap>;
   profile(): string;
+  selectedProfile(): string;
   metadataEntries(): Metadata[];
+  metadataMap(): Map<number, Metadata>;
+  tagMap(): ProfileTagMap;
   getMetadata(tag: Tag): Metadata | undefined;
   findMetadata(path: string): Promise<Metadata | undefined>;
   select(profile: string): Figment;
@@ -57,6 +96,8 @@ declare class Figment implements Provider {
   focus(path: string): Figment;
   ready(): Promise<void>;
   private provide;
+  private allocateTag;
+  private importMetadataMap;
   private merged;
   private mergedState;
   private findTagForPath;
@@ -71,14 +112,14 @@ declare function profileFromEnvOr(key: string, fallback: string): string;
 //#region src/core/error.d.ts
 declare class FigmentError extends Error {
   readonly kind: string;
-  readonly tag?: number;
+  readonly tag?: Tag;
   readonly path: string[];
   readonly profile?: string;
   readonly metadata?: Metadata;
   readonly previous?: FigmentError;
   constructor(kind: string, message: string, options?: {
     path?: string[];
-    tag?: number;
+    tag?: Tag;
     profile?: string;
     metadata?: Metadata;
     previous?: FigmentError;
@@ -89,7 +130,7 @@ declare class FigmentError extends Error {
   static missingField(path: string): FigmentError;
   static message(message: string): FigmentError;
   withContext(options: {
-    tag?: number;
+    tag?: Tag;
     profile?: string;
     metadata?: Metadata;
   }): FigmentError;

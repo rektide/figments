@@ -9,7 +9,7 @@ Legend:
 
 ## Executive Summary
 
-The TypeScript `figments` port has made substantial progress. Core composition semantics, metadata provenance, and the provider interface are well-aligned. The main gaps are in the "magic value" ecosystem, zip coalescing strategies, and rich error diagnostics.
+The TypeScript `FigmenTs` port has made substantial progress. Core composition semantics, metadata provenance, and the provider interface are well-aligned. The main gaps are in the "magic value" ecosystem, zip coalescing strategies, and rich error diagnostics.
 
 ## Detailed Parity Matrix
 

@@ -1,43 +1,43 @@
 {
-  "name": "figment-ts",
-  "version": "0.1.0",
-  "description": "",
-  "main": "./dist/index.mjs",
-  "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsgo --noEmit",
-    "build": "tsdown src/index.ts --format esm --dts",
-    "lint": "oxlint src test",
-    "format": "oxfmt --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "test:watch": "vitest",
-    "format:check": "oxfmt --check \"src/**/*.ts\" \"test/**/*.ts\"",
-    "check": "concurrently \"pnpm:check:*\"",
-    "prepack": "pnpm run check && pnpm run build",
-    "fix": "concurrently \"pnpm:fix:*\" \"pnpm:check:types\" \"pnpm:check:test\"",
-    "fix:lint": "oxlint --fix src test",
-    "check:types": "pnpm run typecheck",
-    "check:lint": "pnpm run lint",
-    "check:test": "pnpm run test",
-    "check:format": "pnpm run format:check",
-    "fix:format": "pnpm run format"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.29.3",
-  "dependencies": {
-    "@iarna/toml": "^2.2.5",
-    "yaml": "^2.8.2"
-  },
-  "devDependencies": {
-    "@types/node": "^25.2.3",
-    "@typescript/native-preview": "7.0.0-dev.20260212.1",
-    "concurrently": "^9.2.1",
-    "oxfmt": "^0.32.0",
-    "oxlint": "^1.47.0",
-    "tsdown": "^0.20.3",
-    "vitest": "^4.0.18"
-  },
-  "type": "module",
-  "types": "./dist/index.d.mts"
+	"name": "figmen-ts",
+	"version": "0.1.0",
+	"description": "",
+	"main": "./dist/index.mjs",
+	"scripts": {
+		"test": "vitest run",
+		"typecheck": "tsgo --noEmit",
+		"build": "tsdown src/index.ts --format esm --dts",
+		"lint": "oxlint src test",
+		"format": "oxfmt --write \"src/**/*.ts\" \"test/**/*.ts\"",
+		"test:watch": "vitest",
+		"format:check": "oxfmt --check \"src/**/*.ts\" \"test/**/*.ts\"",
+		"check": "concurrently \"pnpm:check:*\"",
+		"prepack": "pnpm run check && pnpm run build",
+		"fix": "concurrently \"pnpm:fix:*\" \"pnpm:check:types\" \"pnpm:check:test\"",
+		"fix:lint": "oxlint --fix src test",
+		"check:types": "pnpm run typecheck",
+		"check:lint": "pnpm run lint",
+		"check:test": "pnpm run test",
+		"check:format": "pnpm run format:check",
+		"fix:format": "pnpm run format"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"packageManager": "pnpm@10.29.3",
+	"dependencies": {
+		"@iarna/toml": "^2.2.5",
+		"yaml": "^2.8.2"
+	},
+	"devDependencies": {
+		"@types/node": "^25.2.3",
+		"@typescript/native-preview": "7.0.0-dev.20260212.1",
+		"concurrently": "^9.2.1",
+		"oxfmt": "^0.32.0",
+		"oxlint": "^1.47.0",
+		"tsdown": "^0.20.3",
+		"vitest": "^4.0.18"
+	},
+	"type": "module",
+	"types": "./dist/index.d.mts"
 }

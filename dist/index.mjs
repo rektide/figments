@@ -38,22 +38,115 @@ function deepClone(value) {
 
 //#endregion
 //#region src/core/tag.ts
+const dictChildrenIndexCache = /* @__PURE__ */ new WeakMap();
 function buildTagTree(value, tag) {
-	if (Array.isArray(value)) return value.map((item) => buildTagTree(item, tag));
+	if (Array.isArray(value)) return {
+		kind: "array",
+		tag,
+		children: value.map((item) => buildTagTree(item, tag))
+	};
 	if (isConfigDict(value)) {
-		const tree = {};
-		for (const [key, item] of Object.entries(value)) tree[key] = buildTagTree(item, tag);
-		return tree;
+		const children = [];
+		for (const [key, item] of Object.entries(value)) children.push({
+			...buildTagTree(item, tag),
+			key
+		});
+		return {
+			kind: "dict",
+			tag,
+			children
+		};
 	}
-	return tag;
+	return {
+		kind: "scalar",
+		tag
+	};
 }
 function buildTagProfileMap(values, tag) {
 	const map = {};
-	for (const [profile, dict] of Object.entries(values)) map[profile] = buildTagTree(dict, tag);
+	for (const [profile, dict] of Object.entries(values)) map[profile] = buildTagTree(dict, retagForProfile(tag, profile));
 	return map;
 }
-function isTagDict(value) {
-	return typeof value === "object" && !Array.isArray(value);
+function isTagDictNode(value) {
+	return value.kind === "dict";
+}
+function isTagArrayNode(value) {
+	return value.kind === "array";
+}
+function dictChildrenIndex(node) {
+	const cached = dictChildrenIndexCache.get(node);
+	if (cached) return cached;
+	const index = /* @__PURE__ */ new Map();
+	for (const child of node.children) index.set(child.key, child);
+	dictChildrenIndexCache.set(node, index);
+	return index;
+}
+function cloneTagTree(value) {
+	if (value.kind === "array") return {
+		kind: "array",
+		tag: value.tag,
+		key: value.key,
+		children: value.children.map((item) => cloneTagTree(item))
+	};
+	if (value.kind === "dict") return {
+		kind: "dict",
+		tag: value.tag,
+		key: value.key,
+		children: value.children.map((item) => cloneTagTree(item))
+	};
+	return {
+		kind: "scalar",
+		tag: value.tag,
+		key: value.key
+	};
+}
+function cloneTagDictNode(value) {
+	return cloneTagTree(value);
+}
+function cloneProfileTagMap(map) {
+	const out = {};
+	for (const [profile, node] of Object.entries(map)) out[profile] = cloneTagDictNode(node);
+	return out;
+}
+function remapProfileTagMap(map, tagMap) {
+	const out = {};
+	for (const [profile, node] of Object.entries(map)) out[profile] = remapTagTree(node, tagMap);
+	return out;
+}
+function remapTagTree(value, tagMap) {
+	const tag = {
+		metadataId: tagMap.get(value.tag.metadataId) ?? value.tag.metadataId,
+		profile: value.tag.profile
+	};
+	if (value.kind === "array") return {
+		kind: "array",
+		tag,
+		key: value.key,
+		children: value.children.map((item) => remapTagTree(item, tagMap))
+	};
+	if (value.kind === "dict") return {
+		kind: "dict",
+		tag,
+		key: value.key,
+		children: value.children.map((item) => remapTagTree(item, tagMap))
+	};
+	return {
+		kind: "scalar",
+		tag,
+		key: value.key
+	};
+}
+function makeTag(metadataId, profile) {
+	return {
+		metadataId,
+		profile
+	};
+}
+function retagForProfile(tag, profile) {
+	return {
+		metadataId: tag.metadataId,
+		profile
+	};
 }
 
 //#endregion
@@ -83,10 +176,7 @@ function coalesceDict(current, incoming, order) {
 	return out;
 }
 function coalesceValue(current, incoming, order) {
-	if (isConfigDict(current) && isConfigDict(incoming)) {
-		if (order === "join" || order === "adjoin") return coalesceDict(current, incoming, order);
-		return coalesceDict(current, incoming, order);
-	}
+	if (isConfigDict(current) && isConfigDict(incoming)) return coalesceDict(current, incoming, order);
 	if (Array.isArray(current) && Array.isArray(incoming)) {
 		if (order === "adjoin" || order === "admerge") return [...deepClone(current), ...deepClone(incoming)];
 		return order === "join" ? deepClone(current) : deepClone(incoming);
@@ -97,36 +187,118 @@ function coalesceValue(current, incoming, order) {
 function coalesceTagProfiles(current, incoming, order) {
 	const out = {};
 	const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
-	for (const key of keys) if (current[key] && incoming[key]) out[key] = coalesceTagDict(current[key], incoming[key], order);
+	for (const key of keys) if (current[key] && incoming[key]) out[key] = coalesceTagDictNode(current[key], incoming[key], order);
 	else if (current[key]) out[key] = deepCloneTag(current[key]);
 	else if (incoming[key]) out[key] = deepCloneTag(incoming[key]);
 	return out;
 }
-function coalesceTagDict(current, incoming, order) {
-	const out = {};
-	const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
-	for (const key of keys) if (key in current && key in incoming) out[key] = coalesceTagValue(current[key], incoming[key], order);
-	else if (key in current) out[key] = deepCloneTag(current[key]);
-	else out[key] = deepCloneTag(incoming[key]);
-	return out;
+function coalesceTagDictNode(current, incoming, order) {
+	return {
+		kind: "dict",
+		key: current.key ?? incoming.key,
+		tag: prefersCurrent(order) ? current.tag : incoming.tag,
+		children: coalesceDictChildren(current, incoming, order)
+	};
 }
 function coalesceTagValue(current, incoming, order) {
-	if (isTagDict(current) && isTagDict(incoming)) return coalesceTagDict(current, incoming, order);
-	if (Array.isArray(current) && Array.isArray(incoming)) {
-		if (order === "adjoin" || order === "admerge") return [...deepCloneTag(current), ...deepCloneTag(incoming)];
+	if (isTagDictNode(current) && isTagDictNode(incoming)) return coalesceTagDictNode(current, incoming, order);
+	if (isTagArrayNode(current) && isTagArrayNode(incoming)) {
+		if (order === "adjoin" || order === "admerge") return {
+			kind: "array",
+			key: current.key ?? incoming.key,
+			tag: prefersCurrent(order) ? current.tag : incoming.tag,
+			children: [...current.children.map((item) => deepCloneTag(item)), ...incoming.children.map((item) => deepCloneTag(item))]
+		};
 		return order === "join" ? deepCloneTag(current) : deepCloneTag(incoming);
 	}
 	if (order === "join" || order === "adjoin") return deepCloneTag(current);
 	return deepCloneTag(incoming);
 }
-function deepCloneTag(value) {
-	if (Array.isArray(value)) return value.map((item) => deepCloneTag(item));
-	if (typeof value === "object") {
-		const out = {};
-		for (const [key, item] of Object.entries(value)) out[key] = deepCloneTag(item);
-		return out;
+function coalesceDictChildren(current, incoming, order) {
+	const byCurrent = dictChildrenIndex(current);
+	const byIncoming = dictChildrenIndex(incoming);
+	const keys = new Set([...byCurrent.keys(), ...byIncoming.keys()]);
+	const out = [];
+	for (const key of keys) {
+		const left = byCurrent.get(key);
+		const right = byIncoming.get(key);
+		if (left && right) out.push({
+			...coalesceTagValue(left, right, order),
+			key
+		});
+		else if (left) out.push(deepCloneTag(left));
+		else if (right) out.push(deepCloneTag(right));
 	}
-	return value;
+	return out;
+}
+function deepCloneTag(value) {
+	if (isTagArrayNode(value)) return {
+		kind: "array",
+		tag: value.tag,
+		key: value.key,
+		children: value.children.map((item) => deepCloneTag(item))
+	};
+	if (isTagDictNode(value)) return {
+		kind: "dict",
+		tag: value.tag,
+		key: value.key,
+		children: value.children.map((item) => deepCloneTag(item))
+	};
+	return {
+		kind: "scalar",
+		tag: value.tag,
+		key: value.key
+	};
+}
+function prefersCurrent(order) {
+	return order === "join" || order === "adjoin";
+}
+
+//#endregion
+//#region src/core/metadata.ts
+const SourceKind = {
+	File: "file",
+	Env: "env",
+	Inline: "inline"
+};
+function metadataNamed(name) {
+	return {
+		name,
+		interpolate: (profile, keys) => `${profile}.${keys.join(".")}`
+	};
+}
+function metadataFromFile(name, path) {
+	return {
+		...metadataNamed(name),
+		source: {
+			kind: SourceKind.File,
+			value: path
+		}
+	};
+}
+function metadataFromEnv(name, selector) {
+	return {
+		...metadataNamed(name),
+		source: {
+			kind: SourceKind.Env,
+			value: selector
+		}
+	};
+}
+function metadataFromInline(name, descriptor) {
+	return {
+		...metadataNamed(name),
+		source: {
+			kind: SourceKind.Inline,
+			value: descriptor
+		}
+	};
+}
+function formatMetadataSource(source) {
+	if (!source) return "";
+	if (source.kind === SourceKind.File) return `file ${source.value}`;
+	if (source.kind === SourceKind.Env) return `environment ${source.value}`;
+	return source.value;
 }
 
 //#endregion
@@ -168,7 +340,8 @@ var FigmentError = class FigmentError extends Error {
 	}
 	toString() {
 		const keySuffix = this.path.length > 0 ? ` for key '${this.path.join(".")}'` : "";
-		const sourceSuffix = this.metadata?.source ? ` in ${this.metadata.source} ${this.metadata.name}` : this.metadata ? ` in ${this.metadata.name}` : "";
+		const source = formatMetadataSource(this.metadata?.source);
+		const sourceSuffix = this.metadata?.source ? ` in ${source} ${this.metadata.name}` : this.metadata ? ` in ${this.metadata.name}` : "";
 		const base = `${this.message}${keySuffix}${sourceSuffix}`;
 		if (!this.previous) return base;
 		return `${base}\n${this.previous.toString()}`;
@@ -215,9 +388,10 @@ function findTag(dict, path) {
 	const keys = path.split(".").filter(Boolean);
 	let current = dict;
 	for (const key of keys) {
-		if (!isTagDict(current)) return;
-		if (!(key in current)) return;
-		current = current[key];
+		if (!isTagDictNode(current)) return;
+		const child = dictChildrenIndex(current).get(key);
+		if (!child) return;
+		current = child;
 	}
 	return current;
 }
@@ -245,7 +419,7 @@ var Figment = class Figment {
 		return new Figment();
 	}
 	static from(provider) {
-		return new Figment().merge(provider);
+		return new Figment().provide(provider, "merge", captureProvideLocation());
 	}
 	metadata() {
 		return {
@@ -260,31 +434,40 @@ var Figment = class Figment {
 	profile() {
 		return this.activeProfile;
 	}
+	selectedProfile() {
+		return this.activeProfile;
+	}
 	metadataEntries() {
 		return [...this.metadataByTag.values()];
 	}
+	metadataMap() {
+		return new Map(this.metadataByTag.entries());
+	}
+	tagMap() {
+		return cloneProfileTagMap(this.tags);
+	}
 	getMetadata(tag) {
-		return this.metadataByTag.get(tag);
+		return this.metadataByTag.get(tag.metadataId);
 	}
 	async findMetadata(path) {
 		const tag = await this.findTagForPath(path);
-		return tag === void 0 ? void 0 : this.metadataByTag.get(tag);
+		return tag === void 0 ? void 0 : this.metadataByTag.get(tag.metadataId);
 	}
 	select(profile) {
 		this.activeProfile = normalizeProfile(profile);
 		return this;
 	}
 	join(provider) {
-		return this.provide(provider, "join");
+		return this.provide(provider, "join", captureProvideLocation());
 	}
 	adjoin(provider) {
-		return this.provide(provider, "adjoin");
+		return this.provide(provider, "adjoin", captureProvideLocation());
 	}
 	merge(provider) {
-		return this.provide(provider, "merge");
+		return this.provide(provider, "merge", captureProvideLocation());
 	}
 	admerge(provider) {
-		return this.provide(provider, "admerge");
+		return this.provide(provider, "admerge", captureProvideLocation());
 	}
 	async profiles() {
 		await this.ready();
@@ -326,7 +509,7 @@ var Figment = class Figment {
 			}
 			focused.activeProfile = this.activeProfile;
 			focused.nextTag = this.nextTag;
-			for (const [tag, metadata] of this.metadataByTag.entries()) focused.metadataByTag.set(tag, metadata);
+			for (const [metadataId, metadata] of this.metadataByTag.entries()) focused.metadataByTag.set(metadataId, metadata);
 			const map = {};
 			const tags = {};
 			for (const [profile, dict] of Object.entries(this.values)) {
@@ -334,7 +517,7 @@ var Figment = class Figment {
 				const tree = this.tags[profile] ? findTag(this.tags[profile], path) : void 0;
 				if (isConfigDict(value)) {
 					map[profile] = deepClone(value);
-					if (tree && typeof tree === "object" && !Array.isArray(tree)) tags[profile] = deepClone(tree);
+					if (tree && isTagDictNode(tree)) tags[profile] = cloneTagDictNode(tree);
 				}
 			}
 			focused.values = map;
@@ -346,29 +529,62 @@ var Figment = class Figment {
 		await this.pending;
 		if (this.failure) throw this.failure;
 	}
-	provide(provider, order) {
-		const tag = this.nextTag;
-		this.nextTag += 1;
-		this.metadataByTag.set(tag, provider.metadata());
+	provide(provider, order, provideLocation) {
 		const providerProfile = provider.selectedProfile?.();
 		if (providerProfile) this.activeProfile = profileCoalesce(this.activeProfile, normalizeProfile(providerProfile), order);
 		this.pending = this.pending.then(async () => {
 			if (this.failure) return;
+			let contextTag;
+			let contextMetadata;
 			try {
-				const incoming = normalizeProfiles(await provider.data());
-				const incomingTags = buildTagProfileMap(incoming, tag);
+				let incoming;
+				let incomingTags;
+				const importedMetadataMap = provider.metadataMap?.();
+				const importedTagMap = provider.tagMap?.();
+				if (importedMetadataMap && importedTagMap) {
+					const remap = this.importMetadataMap(importedMetadataMap);
+					incoming = normalizeProfiles(await provider.data());
+					incomingTags = remapProfileTagMap(cloneProfileTagMap(importedTagMap), remap);
+				} else {
+					contextTag = this.allocateTag(this.activeProfile);
+					contextMetadata = provider.metadata();
+					contextMetadata.provideLocation = provideLocation;
+					this.metadataByTag.set(contextTag.metadataId, contextMetadata);
+					incoming = normalizeProfiles(await provider.data());
+					incomingTags = buildTagProfileMap(incoming, contextTag);
+				}
 				this.values = coalesceProfiles(this.values, incoming, order);
 				this.tags = coalesceTagProfiles(this.tags, incomingTags, order);
 			} catch (error) {
 				const figmentError = error instanceof FigmentError ? error.withContext({
-					metadata: this.metadataByTag.get(tag),
-					tag,
+					metadata: contextMetadata,
+					tag: contextTag,
 					profile: this.activeProfile
 				}) : FigmentError.message(error instanceof Error ? error.message : String(error));
 				this.failure = this.failure ? figmentError.chain(this.failure) : figmentError;
 			}
 		});
 		return this;
+	}
+	allocateTag(profile) {
+		while (this.metadataByTag.has(this.nextTag)) this.nextTag += 1;
+		const metadataId = this.nextTag;
+		this.nextTag += 1;
+		return makeTag(metadataId, profile);
+	}
+	importMetadataMap(map) {
+		const remap = /* @__PURE__ */ new Map();
+		for (const [metadataId, metadata] of map.entries()) {
+			if (!this.metadataByTag.has(metadataId)) {
+				this.metadataByTag.set(metadataId, metadata);
+				if (metadataId >= this.nextTag) this.nextTag = metadataId + 1;
+				continue;
+			}
+			const replacement = this.allocateTag(this.activeProfile);
+			remap.set(metadataId, replacement.metadataId);
+			this.metadataByTag.set(replacement.metadataId, metadata);
+		}
+		return remap;
 	}
 	async merged() {
 		return (await this.mergedState()).value;
@@ -378,16 +594,16 @@ var Figment = class Figment {
 		const defaults = this.values[DEFAULT_PROFILE] ?? {};
 		const globals = this.values[GLOBAL_PROFILE] ?? {};
 		const selected = this.values[this.activeProfile];
-		const defaultTags = this.tags[DEFAULT_PROFILE] ?? {};
-		const globalTags = this.tags[GLOBAL_PROFILE] ?? {};
+		const defaultTags = this.tags[DEFAULT_PROFILE] ?? emptyTagDictNode();
+		const globalTags = this.tags[GLOBAL_PROFILE] ?? emptyTagDictNode();
 		const selectedTags = this.tags[this.activeProfile];
 		if (selected && isCustomProfile(this.activeProfile)) return {
 			value: coalesceDict(coalesceDict(defaults, selected, "merge"), globals, "merge"),
-			tags: coalesceTagDict(coalesceTagDict(defaultTags, selectedTags ?? {}, "merge"), globalTags, "merge")
+			tags: coalesceTagDictNode(coalesceTagDictNode(defaultTags, selectedTags ?? emptyTagDictNode(), "merge"), globalTags, "merge")
 		};
 		return {
 			value: coalesceDict(defaults, globals, "merge"),
-			tags: coalesceTagDict(defaultTags, globalTags, "merge")
+			tags: coalesceTagDictNode(defaultTags, globalTags, "merge")
 		};
 	}
 	async findTagForPath(path) {
@@ -433,33 +649,23 @@ function lossyValue(value) {
 	return value;
 }
 function unwrapTag(tree) {
-	if (typeof tree === "number") return tree;
-	if (Array.isArray(tree)) {
-		for (const item of tree) {
-			const tag = unwrapTag(item);
-			if (tag !== void 0) return tag;
-		}
-		return;
-	}
-	if (tree && typeof tree === "object") for (const item of Object.values(tree)) {
-		const tag = unwrapTag(item);
-		if (tag !== void 0) return tag;
-	}
+	return tree?.tag;
 }
-
-//#endregion
-//#region src/core/metadata.ts
-function metadataNamed(name) {
+function emptyTagDictNode() {
 	return {
-		name,
-		interpolate: (profile, keys) => `${profile}.${keys.join(".")}`
+		kind: "dict",
+		tag: makeTag(0, DEFAULT_PROFILE),
+		children: []
 	};
 }
-function metadataFrom(name, source) {
-	return {
-		...metadataNamed(name),
-		source
-	};
+function captureProvideLocation() {
+	const stack = (/* @__PURE__ */ new Error()).stack;
+	if (!stack) return;
+	const lines = stack.split("\n").slice(1).map((line) => line.trim());
+	for (const line of lines) {
+		if (line.includes("captureProvideLocation") || line.includes("/src/figment.ts")) continue;
+		return line.replace(/^at\s+/, "");
+	}
 }
 
 //#endregion
@@ -525,7 +731,7 @@ var Env = class Env {
 		return copy;
 	}
 	metadata() {
-		const metadata = metadataNamed(this.prefixValue ? `\`${this.prefixValue.toUpperCase()}\` environment variable(s)` : "environment variable(s)");
+		const metadata = metadataFromEnv(this.prefixValue ? `\`${this.prefixValue.toUpperCase()}\` environment variable(s)` : "environment variable(s)", this.prefixValue ? `${this.prefixValue.toUpperCase()}*` : "*");
 		metadata.interpolate = (_profile, keys) => keys.map((k) => k.toUpperCase()).join(".");
 		return metadata;
 	}
@@ -639,7 +845,7 @@ var Serialized = class Serialized {
 		return this;
 	}
 	metadata() {
-		return metadataNamed("Serialized");
+		return metadataFromInline("Serialized", this.keyPath ? `serialized value for ${this.keyPath}` : "serialized value");
 	}
 	data() {
 		const serialized = toConfigValue$1(this.value);
@@ -706,8 +912,8 @@ var Data = class Data {
 		return this.profileName;
 	}
 	metadata() {
-		if (this.source.type === "string") return metadataNamed(`${this.format.name} source string`);
-		return metadataFrom(`${this.format.name} file`, this.source.path);
+		if (this.source.type === "string") return metadataFromInline(`${this.format.name} source string`, `${this.format.name} inline string`);
+		return metadataFromFile(`${this.format.name} file`, this.source.path);
 	}
 	async data() {
 		const value = await this.load();

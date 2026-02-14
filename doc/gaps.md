@@ -45,7 +45,7 @@ Implemented:
 - first-class tag tree with container-level tags (`dict`, `array`, `scalar`)
 - `findMetadata(path)` and `getMetadata(tag)`
 - container path metadata support (Figment-like direction)
-- collision-safe tag remapping when composing figments
+- collision-safe tag remapping when composing FigmenTs
 - `provideLocation` captured when adding providers
 
 Still different from Rust:
@@ -57,7 +57,7 @@ Still different from Rust:
 Why this matters:
 
 - correct attribution for "which source won this key"
-- reliable provenance under deeply composed figments
+- reliable provenance under deeply composed FigmenTs
 
 ## 3) Provider metadata-map contract (explicit callout)
 

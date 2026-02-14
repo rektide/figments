@@ -171,7 +171,7 @@ describe("figment merge behavior", () => {
     expect(await figment.findMetadata("missing.key")).toBeUndefined();
   });
 
-  it("preserves inner figment metadata when merging figments", async () => {
+  it("preserves inner FigmenTs metadata when merging FigmenTs", async () => {
     const outer = Figment.new().join(new NamedProvider("OuterProvider", { outer: "value" }));
     const inner = Figment.new().join(new NamedProvider("InnerProvider", { inner: "value" }));
 
