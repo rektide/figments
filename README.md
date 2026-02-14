@@ -1,4 +1,4 @@
-# FigmenTS
+# Figmen-TS / figments
 
 TypeScript port of the rust `figment` library
 
@@ -37,8 +37,8 @@ const config = await figment.extract<{ app: { name: string } }>()
 import { Figment, providers } from "./src/index.ts"
 
 const figment = Figment.new()
-  .join(providers.Serialized.default("server.host", "base.example"))
-  .merge(providers.Serialized.default("server.host", "incoming.example"))
+	.join(providers.Serialized.default("server.host", "base.example"))
+	.merge(providers.Serialized.default("server.host", "incoming.example"))
 
 const source = await figment.findMetadata("server.host")
 // source?.name -> "Serialized"

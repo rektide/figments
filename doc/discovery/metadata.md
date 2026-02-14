@@ -137,7 +137,7 @@ Verify stability of tags/metadata after:
 
 Goal:
 
-- no tag drift or stale metadata in focused FigmenTs
+- no tag drift or stale metadata in focused figments
 
 ## 7) Provider-specific provenance fixtures
 
