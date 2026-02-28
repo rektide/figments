@@ -107,7 +107,7 @@ export class Env implements Provider {
 
     for (const [key, value] of this.iter()) {
       const nested = nest(key, parseEnvironmentValue(value));
-      dict = coalesceDict(dict, nested, "merge");
+      dict = coalesceDict(dict, nested, "zipmerge");
     }
 
     return {

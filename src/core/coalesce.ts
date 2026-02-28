@@ -233,11 +233,11 @@ function zipArrayValues(
     const left = current[i];
     const right = incoming[i];
     if (left !== undefined && right !== undefined) {
-      out.push(coalesceValue(left, right, order));
+      out[i] = coalesceValue(left, right, order);
     } else if (left !== undefined) {
-      out.push(deepClone(left));
+      out[i] = deepClone(left);
     } else if (right !== undefined) {
-      out.push(deepClone(right));
+      out[i] = deepClone(right);
     }
   }
 
@@ -255,11 +255,11 @@ function zipTagArrayChildren(
     const left = current.children[i];
     const right = incoming.children[i];
     if (left && right) {
-      out.push(coalesceTagValue(left, right, order));
+      out[i] = coalesceTagValue(left, right, order);
     } else if (left) {
-      out.push(deepCloneTag(left));
+      out[i] = deepCloneTag(left);
     } else if (right) {
-      out.push(deepCloneTag(right));
+      out[i] = deepCloneTag(right);
     }
   }
 

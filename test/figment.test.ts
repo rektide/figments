@@ -237,14 +237,24 @@ describe("provider behavior", () => {
 
     process.env.TEST_FIGMENT_APP_NAME = '"demo"';
     process.env.TEST_FIGMENT_APP_DEBUG = "true";
+    process.env.TEST_FIGMENT_ARRAY_0 = "4";
+    process.env.TEST_FIGMENT_ARRAY_2 = "6";
+    process.env.TEST_FIGMENT_ARRAY_1 = "5";
     try {
       const figment = Figment.new().merge(Env.prefixed("TEST_FIGMENT_").split("_"));
-      const config = await figment.extractLossy<{ app: { name: string; debug: boolean } }>();
+      const config = await figment.extractLossy<{
+        app: { name: string; debug: boolean };
+        array: number[];
+      }>();
       expect(config.app.name).toBe("demo");
       expect(config.app.debug).toBe(true);
+      expect(config.array).toEqual([4, 5, 6]);
     } finally {
       delete process.env.TEST_FIGMENT_APP_NAME;
       delete process.env.TEST_FIGMENT_APP_DEBUG;
+      delete process.env.TEST_FIGMENT_ARRAY_0;
+      delete process.env.TEST_FIGMENT_ARRAY_2;
+      delete process.env.TEST_FIGMENT_ARRAY_1;
     }
   });
 

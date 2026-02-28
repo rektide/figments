@@ -48,12 +48,26 @@ export function nest(path: string, value: ConfigValue): ConfigDict {
     return {};
   }
 
-  let out: ConfigDict = { [keys[keys.length - 1]]: value };
-  for (let i = keys.length - 2; i >= 0; i -= 1) {
-    out = { [keys[i]]: out };
+  const root = keys[0];
+  if (parsePathIndex(root) !== undefined) {
+    return {};
   }
 
-  return out;
+  let out: ConfigValue = value;
+  for (let i = keys.length - 1; i >= 1; i -= 1) {
+    const key = keys[i];
+    const index = parsePathIndex(key);
+    if (index !== undefined) {
+      const array: ConfigValue[] = [];
+      array[index] = out;
+      out = array;
+      continue;
+    }
+
+    out = { [key]: out };
+  }
+
+  return { [root]: out };
 }
 
 export function findTag(dict: TagDictNode, path: string): TagTree | undefined {
