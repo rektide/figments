@@ -15,6 +15,7 @@ TypeScript port of the rust `figment` library
 ## Notes
 
 - This port keeps the conflict-resolution and provider-composition model, but is intentionally lighter than Rust `figment`.
+- Figment and provider builder methods are immutable: chaining returns new instances.
 - APIs that load files are asynchronous.
 - Type extraction returns plain typed values, optionally with a decode function.
 

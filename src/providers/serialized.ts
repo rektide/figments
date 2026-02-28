@@ -7,9 +7,9 @@ import { deepClone, isConfigDict } from "../core/types.ts";
 import { nest } from "../core/path.ts";
 
 export class Serialized<T = unknown> implements Provider {
-  public value: T;
-  public keyPath?: string;
-  public targetProfile: string;
+  private readonly value: T;
+  private readonly keyPath?: string;
+  private readonly targetProfile: string;
 
   public constructor(value: T, profile: string = DEFAULT_PROFILE, keyPath?: string) {
     this.value = value;
@@ -38,8 +38,7 @@ export class Serialized<T = unknown> implements Provider {
   }
 
   public profile(profile: string): Serialized<T> {
-    this.targetProfile = normalizeProfile(profile);
-    return this;
+    return new Serialized(this.value, normalizeProfile(profile), this.keyPath);
   }
 
   public selectedProfile(): string {
@@ -47,8 +46,7 @@ export class Serialized<T = unknown> implements Provider {
   }
 
   public key(keyPath: string): Serialized<T> {
-    this.keyPath = keyPath;
-    return this;
+    return new Serialized(this.value, this.targetProfile, keyPath);
   }
 
   public metadata(): Metadata {

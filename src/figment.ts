@@ -95,8 +95,18 @@ export class Figment implements Provider {
   }
 
   public select(profile: string): Figment {
-    this.activeProfile = normalizeProfile(profile);
-    return this;
+    const normalized = normalizeProfile(profile);
+    const next = this.fork();
+    next.activeProfile = normalized;
+    next.pending = next.pending.then(() => {
+      if (next.failure) {
+        return;
+      }
+
+      next.activeProfile = normalized;
+    });
+
+    return next;
   }
 
   public join(provider: Provider): Figment {
@@ -166,24 +176,17 @@ export class Figment implements Provider {
   }
 
   public focus(path: string): Figment {
-    const focused = new Figment();
-    focused.pending = this.pending.then(async () => {
-      if (this.failure) {
-        focused.failure = this.failure;
+    const focused = this.fork();
+    focused.pending = focused.pending.then(() => {
+      if (focused.failure) {
         return;
-      }
-
-      focused.activeProfile = this.activeProfile;
-      focused.nextTag = this.nextTag;
-      for (const [metadataId, metadata] of this.metadataByTag.entries()) {
-        focused.metadataByTag.set(metadataId, metadata);
       }
 
       const map: ProfileMap = {};
       const tags: ProfileTagMap = {};
-      for (const [profile, dict] of Object.entries(this.values)) {
+      for (const [profile, dict] of Object.entries(focused.values)) {
         const value = findValue(dict, path);
-        const tree = this.tags[profile] ? findTag(this.tags[profile], path) : undefined;
+        const tree = focused.tags[profile] ? findTag(focused.tags[profile], path) : undefined;
         if (isConfigDict(value)) {
           map[profile] = deepClone(value);
           if (tree && isTagDictNode(tree)) {
@@ -207,18 +210,27 @@ export class Figment implements Provider {
   }
 
   private provide(provider: Provider, order: CoalesceOrder, provideLocation?: string): Figment {
+    const next = this.fork();
     const providerProfile = provider.selectedProfile?.();
-    if (providerProfile) {
-      this.activeProfile = profileCoalesce(
-        this.activeProfile,
-        normalizeProfile(providerProfile),
-        order,
-      );
+    const normalizedProviderProfile = providerProfile
+      ? normalizeProfile(providerProfile)
+      : undefined;
+
+    if (normalizedProviderProfile) {
+      next.activeProfile = profileCoalesce(this.activeProfile, normalizedProviderProfile, order);
     }
 
-    this.pending = this.pending.then(async () => {
-      if (this.failure) {
+    next.pending = next.pending.then(async () => {
+      if (next.failure) {
         return;
+      }
+
+      if (normalizedProviderProfile) {
+        next.activeProfile = profileCoalesce(
+          next.activeProfile,
+          normalizedProviderProfile,
+          order,
+        );
       }
 
       let contextTag: Tag | undefined;
@@ -232,35 +244,51 @@ export class Figment implements Provider {
         const importedTagMap = provider.tagMap?.();
 
         if (importedMetadataMap && importedTagMap) {
-          const remap = this.importMetadataMap(importedMetadataMap);
+          const remap = next.importMetadataMap(importedMetadataMap);
           incoming = normalizeProfiles(await provider.data());
           incomingTags = remapProfileTagMap(cloneProfileTagMap(importedTagMap), remap);
         } else {
-          contextTag = this.allocateTag(this.activeProfile);
+          contextTag = next.allocateTag(next.activeProfile);
           contextMetadata = provider.metadata();
           contextMetadata.provideLocation = provideLocation;
-          this.metadataByTag.set(contextTag.metadataId, contextMetadata);
+          next.metadataByTag.set(contextTag.metadataId, contextMetadata);
           incoming = normalizeProfiles(await provider.data());
           incomingTags = buildTagProfileMap(incoming, contextTag);
         }
 
-        this.values = coalesceProfiles(this.values, incoming, order);
-        this.tags = coalesceTagProfiles(this.tags, incomingTags, order);
+        next.values = coalesceProfiles(next.values, incoming, order);
+        next.tags = coalesceTagProfiles(next.tags, incomingTags, order);
       } catch (error) {
         const figmentError =
           error instanceof FigmentError
             ? error.withContext({
                 metadata: contextMetadata,
                 tag: contextTag,
-                profile: this.activeProfile,
+                profile: next.activeProfile,
               })
             : FigmentError.message(error instanceof Error ? error.message : String(error));
 
-        this.failure = this.failure ? figmentError.chain(this.failure) : figmentError;
+        next.failure = next.failure ? figmentError.chain(next.failure) : figmentError;
       }
     });
 
-    return this;
+    return next;
+  }
+
+  private fork(): Figment {
+    const next = new Figment();
+    next.pending = this.pending.then(() => {
+      next.activeProfile = this.activeProfile;
+      next.values = deepClone(this.values);
+      next.tags = cloneProfileTagMap(this.tags);
+      next.failure = this.failure;
+      next.nextTag = this.nextTag;
+      for (const [metadataId, metadata] of this.metadataByTag.entries()) {
+        next.metadataByTag.set(metadataId, metadata);
+      }
+    });
+
+    return next;
   }
 
   private allocateTag(profile: string): Tag {

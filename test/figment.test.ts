@@ -224,6 +224,22 @@ describe("figment merge behavior", () => {
     expect((await figment.findMetadata("alpha"))?.name).toBe("AlphaSource");
     expect((await figment.findMetadata("beta"))?.name).toBe("BetaSource");
   });
+
+  it("figment chaining methods are immutable", async () => {
+    const base = Figment.new().merge(Serialized.default("name", "default"));
+    const withDebugProfile = base.merge(Serialized.default("name", "debug").profile("debug"));
+
+    const selectedDefault = withDebugProfile.select("default");
+    const selectedDebug = withDebugProfile.select("debug");
+    const extended = base.merge(Serialized.default("extra", true));
+
+    expect(await base.extractInner<string>("name")).toBe("default");
+    expect(await withDebugProfile.extractInner<string>("name")).toBe("debug");
+    expect(await selectedDefault.extractInner<string>("name")).toBe("default");
+    expect(await selectedDebug.extractInner<string>("name")).toBe("debug");
+    expect(await base.contains("extra")).toBe(false);
+    expect(await extended.contains("extra")).toBe(true);
+  });
 });
 
 describe("provider behavior", () => {
@@ -267,6 +283,26 @@ describe("provider behavior", () => {
       const figment = Figment.new().merge(Toml.file(path));
       const config = await figment.extract<{ name: string; count: number }>();
       expect(config).toEqual({ name: "demo", count: 12 });
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("provider builder methods are immutable", async () => {
+    const serialized = Serialized.default("name", "demo");
+    const debugSerialized = serialized.profile("debug");
+    expect(serialized.selectedProfile()).toBe("default");
+    expect(debugSerialized.selectedProfile()).toBe("debug");
+
+    const temp = await mkdtemp(join(tmpdir(), "figment-ts-"));
+    const missing = join(temp, "Missing.toml");
+
+    try {
+      const optional = Toml.file(missing);
+      const required = optional.required(true);
+
+      expect(await Figment.new().merge(optional).extract()).toEqual({});
+      await expect(Figment.new().merge(required).extract()).rejects.toThrow("required file");
     } finally {
       await rm(temp, { recursive: true, force: true });
     }

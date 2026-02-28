@@ -16,12 +16,12 @@ export interface Format {
 }
 
 type DataSource =
-  | { type: "file"; path: string; required: boolean; search: boolean }
-  | { type: "string"; source: string };
+  | { readonly type: "file"; readonly path: string; readonly required: boolean; readonly search: boolean }
+  | { readonly type: "string"; readonly source: string };
 
 export class Data<F extends Format> implements Provider {
-  private source: DataSource;
-  private profileName: string | undefined;
+  private readonly source: DataSource;
+  private readonly profileName: string | undefined;
 
   public constructor(
     private readonly format: F,
@@ -41,29 +41,40 @@ export class Data<F extends Format> implements Provider {
   }
 
   public nested(): Data<F> {
-    this.profileName = undefined;
-    return this;
+    return new Data(this.format, this.source, undefined);
   }
 
   public required(required: boolean): Data<F> {
-    if (this.source.type === "file") {
-      this.source.required = required;
+    if (this.source.type !== "file") {
+      return this;
     }
 
-    return this;
+    if (this.source.required === required) {
+      return this;
+    }
+
+    return new Data(this.format, { ...this.source, required }, this.profileName);
   }
 
   public search(search: boolean): Data<F> {
-    if (this.source.type === "file") {
-      this.source.search = search;
+    if (this.source.type !== "file") {
+      return this;
     }
 
-    return this;
+    if (this.source.search === search) {
+      return this;
+    }
+
+    return new Data(this.format, { ...this.source, search }, this.profileName);
   }
 
   public profile(profile: string): Data<F> {
-    this.profileName = normalizeProfile(profile);
-    return this;
+    const normalized = normalizeProfile(profile);
+    if (this.profileName === normalized) {
+      return this;
+    }
+
+    return new Data(this.format, this.source, normalized);
   }
 
   public selectedProfile(): string | undefined {
