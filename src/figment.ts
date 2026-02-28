@@ -107,12 +107,20 @@ export class Figment implements Provider {
     return this.provide(provider, "adjoin", captureProvideLocation());
   }
 
+  public zipjoin(provider: Provider): Figment {
+    return this.provide(provider, "zipjoin", captureProvideLocation());
+  }
+
   public merge(provider: Provider): Figment {
     return this.provide(provider, "merge", captureProvideLocation());
   }
 
   public admerge(provider: Provider): Figment {
     return this.provide(provider, "admerge", captureProvideLocation());
+  }
+
+  public zipmerge(provider: Provider): Figment {
+    return this.provide(provider, "zipmerge", captureProvideLocation());
   }
 
   public async profiles(): Promise<string[]> {

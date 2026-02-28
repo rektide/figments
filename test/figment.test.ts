@@ -86,6 +86,25 @@ describe("figment merge behavior", () => {
     expect(await figment.extractInner<string[]>("items")).toEqual(["a", "b"]);
   });
 
+  it("zipjoin and zipmerge coalesce arrays by index", async () => {
+    const base = new NamedProvider("BaseProvider", { items: [1, 2] });
+    const incoming = new NamedProvider("IncomingProvider", { items: [2, 3, 4] });
+
+    const joined = Figment.new().join(base).zipjoin(incoming);
+    expect(await joined.extractInner<number[]>("items")).toEqual([1, 2, 4]);
+    expect((await joined.findMetadata("items"))?.name).toBe("BaseProvider");
+    expect((await joined.findMetadata("items.0"))?.name).toBe("BaseProvider");
+    expect((await joined.findMetadata("items.1"))?.name).toBe("BaseProvider");
+    expect((await joined.findMetadata("items.2"))?.name).toBe("IncomingProvider");
+
+    const merged = Figment.new().join(base).zipmerge(incoming);
+    expect(await merged.extractInner<number[]>("items")).toEqual([2, 3, 4]);
+    expect((await merged.findMetadata("items"))?.name).toBe("IncomingProvider");
+    expect((await merged.findMetadata("items.0"))?.name).toBe("IncomingProvider");
+    expect((await merged.findMetadata("items.1"))?.name).toBe("IncomingProvider");
+    expect((await merged.findMetadata("items.2"))?.name).toBe("IncomingProvider");
+  });
+
   it("tracks metadata provenance for winning values", async () => {
     const base = new NamedProvider("BaseProvider", { name: "base" });
     const incoming = new NamedProvider("IncomingProvider", { name: "incoming" });
@@ -164,6 +183,20 @@ describe("figment merge behavior", () => {
     expect(await focused.extractInner<string>("server.host")).toBe("incoming");
     expect((await focused.findMetadata("server.host"))?.name).toBe("IncomingProvider");
     expect((await focused.findMetadata("server.port"))?.name).toBe("IncomingProvider");
+  });
+
+  it("supports array indices in key paths", async () => {
+    const figment = Figment.new().merge(
+      Serialized.default("servers", [
+        { host: "a", ports: [80, 443] },
+        { host: "b", ports: [8080] },
+      ]),
+    );
+
+    expect(await figment.extractInner<string>("servers.1.host")).toBe("b");
+    expect(await figment.extractInner<number>("servers.0.ports.1")).toBe(443);
+    expect(await figment.contains("servers.0.ports.2")).toBe(false);
+    expect((await figment.findMetadata("servers.0.ports.1"))?.name).toBe("Serialized");
   });
 
   it("returns undefined metadata for missing paths", async () => {

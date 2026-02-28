@@ -4,9 +4,9 @@ TypeScript port of the rust `figment` library
 
 ## Included
 
-- `Figment` combiner with `join`, `adjoin`, `merge`, `admerge`
+- `Figment` combiner with `join`, `adjoin`, `zipjoin`, `merge`, `admerge`, `zipmerge`
 - profile selection with `default`/`global` semantics
-- path lookup (`extractInner`, `findValue`, `focus`, `contains`)
+- path lookup (`extractInner`, `findValue`, `focus`, `contains`) including array indices
 - providers:
   - `Serialized`
   - `Env`

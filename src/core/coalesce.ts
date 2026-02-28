@@ -4,21 +4,24 @@ import {
   dictChildrenIndex,
   type DictChildTagNode,
   type ProfileTagMap,
+  type TagArrayNode,
   type TagDictNode,
   type TagTree,
   isTagArrayNode,
   isTagDictNode,
 } from "./tag.ts";
 
-export type CoalesceOrder = "join" | "adjoin" | "merge" | "admerge";
+export type CoalesceOrder = "join" | "adjoin" | "zipjoin" | "merge" | "admerge" | "zipmerge";
 
 export function profileCoalesce(current: string, incoming: string, order: CoalesceOrder): string {
   switch (order) {
     case "join":
     case "adjoin":
+    case "zipjoin":
       return current;
     case "merge":
     case "admerge":
+    case "zipmerge":
       return incoming;
   }
 }
@@ -79,10 +82,14 @@ export function coalesceValue(
       return [...deepClone(current), ...deepClone(incoming)];
     }
 
+    if (order === "zipjoin" || order === "zipmerge") {
+      return zipArrayValues(current, incoming, order);
+    }
+
     return order === "join" ? deepClone(current) : deepClone(incoming);
   }
 
-  if (order === "join" || order === "adjoin") {
+  if (order === "join" || order === "adjoin" || order === "zipjoin") {
     return deepClone(current);
   }
 
@@ -145,10 +152,19 @@ export function coalesceTagValue(
       };
     }
 
+    if (order === "zipjoin" || order === "zipmerge") {
+      return {
+        kind: "array",
+        key: current.key ?? incoming.key,
+        tag: prefersCurrent(order) ? current.tag : incoming.tag,
+        children: zipTagArrayChildren(current, incoming, order),
+      };
+    }
+
     return order === "join" ? deepCloneTag(current) : deepCloneTag(incoming);
   }
 
-  if (order === "join" || order === "adjoin") {
+  if (order === "join" || order === "adjoin" || order === "zipjoin") {
     return deepCloneTag(current);
   }
 
@@ -206,6 +222,50 @@ function deepCloneTag<T extends TagTree>(value: T): T {
   } as T;
 }
 
+function zipArrayValues(
+  current: ConfigValue[],
+  incoming: ConfigValue[],
+  order: CoalesceOrder,
+): ConfigValue[] {
+  const out: ConfigValue[] = [];
+  const max = Math.max(current.length, incoming.length);
+  for (let i = 0; i < max; i += 1) {
+    const left = current[i];
+    const right = incoming[i];
+    if (left !== undefined && right !== undefined) {
+      out.push(coalesceValue(left, right, order));
+    } else if (left !== undefined) {
+      out.push(deepClone(left));
+    } else if (right !== undefined) {
+      out.push(deepClone(right));
+    }
+  }
+
+  return out;
+}
+
+function zipTagArrayChildren(
+  current: TagArrayNode,
+  incoming: TagArrayNode,
+  order: CoalesceOrder,
+): TagTree[] {
+  const out: TagTree[] = [];
+  const max = Math.max(current.children.length, incoming.children.length);
+  for (let i = 0; i < max; i += 1) {
+    const left = current.children[i];
+    const right = incoming.children[i];
+    if (left && right) {
+      out.push(coalesceTagValue(left, right, order));
+    } else if (left) {
+      out.push(deepCloneTag(left));
+    } else if (right) {
+      out.push(deepCloneTag(right));
+    }
+  }
+
+  return out;
+}
+
 function prefersCurrent(order: CoalesceOrder): boolean {
-  return order === "join" || order === "adjoin";
+  return order === "join" || order === "adjoin" || order === "zipjoin";
 }
