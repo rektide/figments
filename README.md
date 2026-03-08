@@ -18,6 +18,7 @@ TypeScript port of the rust `figment` library
 - Figment and provider builder methods are immutable: chaining returns new instances.
 - APIs that load files are asynchronous.
 - Multi-profile extraction supports ordered overlays via `selectProfiles()` and `spliceProfiles()`.
+- Provider profile influence on selection is configurable via `providerProfileSelection()` (default: `"seedWhenEmpty"`).
 - Type extraction returns plain typed values; strict decode paths are available via `extractWith`, `extractLossyWith`, `extractInnerWith`, and `extractInnerLossyWith`.
 
 ## Example

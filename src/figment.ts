@@ -5,6 +5,7 @@ import {
   coalesceProfiles,
   coalesceTagDictNode,
   coalesceTagProfiles,
+  profileCoalesce,
   type CoalesceOrder,
 } from "./core/coalesce.ts";
 import { FigmentError } from "./core/error.ts";
@@ -31,8 +32,11 @@ export type ValueDecoder<T, V = ConfigValue> =
       parse(value: V): T;
     };
 
+export type ProviderProfileSelectionMode = "coalesce" | "seedWhenEmpty" | "never";
+
 export class Figment implements Provider {
   private activeProfiles: string[];
+  private providerProfileSelectionMode: ProviderProfileSelectionMode;
   private readonly metadataByTag: Map<number, Metadata>;
   private values: ProfileMap;
   private tags: ProfileTagMap;
@@ -42,6 +46,7 @@ export class Figment implements Provider {
 
   public constructor() {
     this.activeProfiles = [];
+    this.providerProfileSelectionMode = "seedWhenEmpty";
     this.metadataByTag = new Map();
     this.values = {};
     this.tags = {};
@@ -140,6 +145,20 @@ export class Figment implements Provider {
       }
 
       next.activeProfiles = normalized;
+    });
+
+    return next;
+  }
+
+  public providerProfileSelection(mode: ProviderProfileSelectionMode): Figment {
+    const next = this.fork();
+    next.providerProfileSelectionMode = mode;
+    next.pending = next.pending.then(() => {
+      if (next.failure) {
+        return;
+      }
+
+      next.providerProfileSelectionMode = mode;
     });
 
     return next;
@@ -299,12 +318,13 @@ export class Figment implements Provider {
       ? normalizeProfile(providerProfile)
       : undefined;
 
-    if (
-      normalizedProviderProfile &&
-      next.activeProfiles.length === 0 &&
-      isCustomProfile(normalizedProviderProfile)
-    ) {
-      next.activeProfiles = [normalizedProviderProfile];
+    if (normalizedProviderProfile) {
+      next.activeProfiles = applyProviderProfileSelection(
+        next.activeProfiles,
+        normalizedProviderProfile,
+        order,
+        this.providerProfileSelectionMode,
+      );
     }
 
     next.pending = next.pending.then(async () => {
@@ -312,12 +332,13 @@ export class Figment implements Provider {
         return;
       }
 
-      if (
-        normalizedProviderProfile &&
-        next.activeProfiles.length === 0 &&
-        isCustomProfile(normalizedProviderProfile)
-      ) {
-        next.activeProfiles = [normalizedProviderProfile];
+      if (normalizedProviderProfile) {
+        next.activeProfiles = applyProviderProfileSelection(
+          next.activeProfiles,
+          normalizedProviderProfile,
+          order,
+          next.providerProfileSelectionMode,
+        );
       }
 
       let contextTag: Tag | undefined;
@@ -364,8 +385,11 @@ export class Figment implements Provider {
 
   private fork(): Figment {
     const next = new Figment();
+    next.activeProfiles = [...this.activeProfiles];
+    next.providerProfileSelectionMode = this.providerProfileSelectionMode;
     next.pending = this.pending.then(() => {
       next.activeProfiles = [...this.activeProfiles];
+      next.providerProfileSelectionMode = this.providerProfileSelectionMode;
       next.values = deepClone(this.values);
       next.tags = cloneProfileTagMap(this.tags);
       next.failure = this.failure;
@@ -489,6 +513,29 @@ function normalizeSelectedProfiles(profiles: string[]): string[] {
   }
 
   return normalized;
+}
+
+function applyProviderProfileSelection(
+  selectedProfiles: string[],
+  providerProfile: string,
+  order: CoalesceOrder,
+  mode: ProviderProfileSelectionMode,
+): string[] {
+  if (!isCustomProfile(providerProfile)) {
+    return selectedProfiles;
+  }
+
+  switch (mode) {
+    case "never":
+      return selectedProfiles;
+    case "seedWhenEmpty":
+      return selectedProfiles.length === 0 ? [providerProfile] : selectedProfiles;
+    case "coalesce": {
+      const current = selectedProfiles[0] ?? DEFAULT_PROFILE;
+      const profile = profileCoalesce(current, providerProfile, order);
+      return isCustomProfile(profile) ? [profile] : [];
+    }
+  }
 }
 
 function lossyConfig(value: ConfigDict): ConfigDict {

@@ -579,4 +579,34 @@ describe("multi-profile behavior", () => {
     expect(figment.selectedProfiles()).toEqual([]);
     expect(await figment.extractInner<string>("value")).toBe("global");
   });
+
+  it("defaults provider profile selection mode to seedWhenEmpty", async () => {
+    const figment = Figment.new()
+      .merge(Serialized.default("value", "default"))
+      .merge(Serialized.default("value", "debug").profile("debug"));
+
+    expect(figment.selectedProfiles()).toEqual(["debug"]);
+    expect(await figment.extractInner<string>("value")).toBe("debug");
+  });
+
+  it("supports provider profile selection mode 'never'", async () => {
+    const figment = Figment.new()
+      .providerProfileSelection("never")
+      .merge(Serialized.default("value", "default"))
+      .merge(Serialized.default("value", "debug").profile("debug"));
+
+    expect(figment.selectedProfiles()).toEqual([]);
+    expect(await figment.extractInner<string>("value")).toBe("default");
+    expect(await figment.select("debug").extractInner<string>("value")).toBe("debug");
+  });
+
+  it("supports provider profile selection mode 'coalesce'", async () => {
+    const figment = Figment.new()
+      .selectProfiles(["base", "extra"])
+      .providerProfileSelection("coalesce")
+      .merge(Serialized.default("value", "debug").profile("debug"))
+      .join(Serialized.default("value", "ignored").profile("other"));
+
+    expect(figment.selectedProfiles()).toEqual(["debug"]);
+  });
 });
