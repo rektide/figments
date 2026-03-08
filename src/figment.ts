@@ -26,6 +26,12 @@ import {
   isTagDictNode,
 } from "./core/tag.ts";
 
+export type ValueDecoder<T, V = ConfigValue> =
+  | ((value: V) => T)
+  | {
+      parse(value: V): T;
+    };
+
 export class Figment implements Provider {
   private activeProfile: string;
   private readonly metadataByTag: Map<number, Metadata>;
@@ -138,22 +144,69 @@ export class Figment implements Provider {
     return Object.keys(this.values);
   }
 
-  public async extract<T>(decode?: (value: ConfigDict) => T): Promise<T> {
+  public async extract<T>(decode?: ValueDecoder<T, ConfigDict>): Promise<T> {
     const value = await this.merged();
-    return decode ? decode(value) : (value as T);
+    return decode
+      ? runDecoder(value, decode, "config", {
+          context: { profile: this.activeProfile },
+        })
+      : (value as T);
   }
 
-  public async extractLossy<T>(decode?: (value: ConfigDict) => T): Promise<T> {
+  public async extractWith<T>(decode: ValueDecoder<T, ConfigDict>): Promise<T> {
+    return this.extract(decode);
+  }
+
+  public async extractLossy<T>(decode?: ValueDecoder<T, ConfigDict>): Promise<T> {
     const value = lossyConfig(await this.merged());
-    return decode ? decode(value) : (value as T);
+    return decode
+      ? runDecoder(value, decode, "lossy config", {
+          context: { profile: this.activeProfile },
+        })
+      : (value as T);
+  }
+
+  public async extractLossyWith<T>(decode: ValueDecoder<T, ConfigDict>): Promise<T> {
+    return this.extractLossy(decode);
   }
 
   public async extractInner<T>(path: string): Promise<T> {
     return (await this.findValue(path)) as T;
   }
 
+  public async extractInnerWith<T>(path: string, decode: ValueDecoder<T, ConfigValue>): Promise<T> {
+    const value = await this.findValue(path);
+    const tag = await this.findTagForPath(path);
+    const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+    return runDecoder(value, decode, `key '${path}'`, {
+      path,
+      context: {
+        tag,
+        profile: this.activeProfile,
+        metadata,
+      },
+    });
+  }
+
   public async extractInnerLossy<T>(path: string): Promise<T> {
     return lossyValue(await this.findValue(path)) as T;
+  }
+
+  public async extractInnerLossyWith<T>(
+    path: string,
+    decode: ValueDecoder<T, ConfigValue>,
+  ): Promise<T> {
+    const value = lossyValue(await this.findValue(path));
+    const tag = await this.findTagForPath(path);
+    const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+    return runDecoder(value, decode, `lossy key '${path}'`, {
+      path,
+      context: {
+        tag,
+        profile: this.activeProfile,
+        metadata,
+      },
+    });
   }
 
   public async contains(path: string): Promise<boolean> {
@@ -169,7 +222,7 @@ export class Figment implements Provider {
     const merged = await this.mergedState();
     const value = findValue(merged.value, path);
     if (value === undefined) {
-      throw FigmentError.missingField(path);
+      throw FigmentError.missingField(path, this.activeProfile);
     }
 
     return value;
@@ -418,6 +471,37 @@ function lossyValue(value: ConfigValue): ConfigValue {
 
 function unwrapTag(tree: TagTree | undefined): Tag | undefined {
   return tree?.tag;
+}
+
+function runDecoder<T, V>(
+  value: V,
+  decode: ValueDecoder<T, V>,
+  scope: string,
+  options?: {
+    path?: string;
+    context?: { tag?: Tag; profile?: string; metadata?: Metadata };
+  },
+): T {
+  try {
+    if (typeof decode === "function") {
+      return decode(value);
+    }
+
+    return decode.parse(value);
+  } catch (error) {
+    let figmentError =
+      error instanceof FigmentError ? error : FigmentError.decode(scope, error);
+
+    if (options?.path) {
+      figmentError = figmentError.withPath(options.path);
+    }
+
+    if (options?.context) {
+      figmentError = figmentError.withContext(options.context);
+    }
+
+    throw figmentError;
+  }
 }
 
 function emptyTagDictNode(): TagDictNode {
