@@ -5,7 +5,6 @@ import {
   coalesceProfiles,
   coalesceTagDictNode,
   coalesceTagProfiles,
-  profileCoalesce,
   type CoalesceOrder,
 } from "./core/coalesce.ts";
 import { FigmentError } from "./core/error.ts";
@@ -300,12 +299,12 @@ export class Figment implements Provider {
       ? normalizeProfile(providerProfile)
       : undefined;
 
-    if (normalizedProviderProfile) {
-      next.activeProfiles = coalescedProfileSelection(
-        this.primaryProfile(),
-        normalizedProviderProfile,
-        order,
-      );
+    if (
+      normalizedProviderProfile &&
+      next.activeProfiles.length === 0 &&
+      isCustomProfile(normalizedProviderProfile)
+    ) {
+      next.activeProfiles = [normalizedProviderProfile];
     }
 
     next.pending = next.pending.then(async () => {
@@ -313,12 +312,12 @@ export class Figment implements Provider {
         return;
       }
 
-      if (normalizedProviderProfile) {
-        next.activeProfiles = coalescedProfileSelection(
-          next.primaryProfile(),
-          normalizedProviderProfile,
-          order,
-        );
+      if (
+        normalizedProviderProfile &&
+        next.activeProfiles.length === 0 &&
+        isCustomProfile(normalizedProviderProfile)
+      ) {
+        next.activeProfiles = [normalizedProviderProfile];
       }
 
       let contextTag: Tag | undefined;
@@ -474,11 +473,6 @@ function normalizeSelectedProfiles(profiles: string[]): string[] {
   }
 
   return normalized;
-}
-
-function coalescedProfileSelection(current: string, incoming: string, order: CoalesceOrder): string[] {
-  const profile = profileCoalesce(current, incoming, order);
-  return isCustomProfile(profile) ? [profile] : [];
 }
 
 function lossyConfig(value: ConfigDict): ConfigDict {
