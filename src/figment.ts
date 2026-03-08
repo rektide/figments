@@ -178,7 +178,7 @@ export class Figment implements Provider {
     const value = await this.merged();
     return decode
       ? runDecoder(value, decode, "config", {
-          context: { profile: this.primaryProfile() },
+          context: this.errorProfileContext(),
         })
       : (value as T);
   }
@@ -191,7 +191,7 @@ export class Figment implements Provider {
     const value = lossyConfig(await this.merged());
     return decode
       ? runDecoder(value, decode, "lossy config", {
-          context: { profile: this.primaryProfile() },
+          context: this.errorProfileContext(),
         })
       : (value as T);
   }
@@ -212,7 +212,7 @@ export class Figment implements Provider {
       path,
       context: {
         tag,
-        profile: this.primaryProfile(),
+        ...this.errorProfileContext(),
         metadata,
       },
     });
@@ -233,7 +233,7 @@ export class Figment implements Provider {
       path,
       context: {
         tag,
-        profile: this.primaryProfile(),
+        ...this.errorProfileContext(),
         metadata,
       },
     });
@@ -252,7 +252,7 @@ export class Figment implements Provider {
     const merged = await this.mergedState();
     const value = findValue(merged.value, path);
     if (value === undefined) {
-      throw FigmentError.missingField(path, this.primaryProfile());
+      throw FigmentError.missingField(path, this.errorProfileContext());
     }
 
     return value;
@@ -351,7 +351,7 @@ export class Figment implements Provider {
             ? error.withContext({
                 metadata: contextMetadata,
                 tag: contextTag,
-                profile: next.primaryProfile(),
+                ...next.errorProfileContext(),
               })
             : FigmentError.message(error instanceof Error ? error.message : String(error));
 
@@ -448,6 +448,22 @@ export class Figment implements Provider {
   private primaryProfile(): string {
     return this.activeProfiles[0] ?? DEFAULT_PROFILE;
   }
+
+  private effectiveProfileOrder(): string[] {
+    return [DEFAULT_PROFILE, ...this.activeProfiles, GLOBAL_PROFILE];
+  }
+
+  private errorProfileContext(): {
+    profile: string;
+    selectedProfiles: string[];
+    effectiveProfileOrder: string[];
+  } {
+    return {
+      profile: this.primaryProfile(),
+      selectedProfiles: this.selectedProfiles(),
+      effectiveProfileOrder: this.effectiveProfileOrder(),
+    };
+  }
 }
 
 function normalizeProfiles(map: ProfileMap): ProfileMap {
@@ -534,7 +550,13 @@ function runDecoder<T, V>(
   scope: string,
   options?: {
     path?: string;
-    context?: { tag?: Tag; profile?: string; metadata?: Metadata };
+    context?: {
+      tag?: Tag;
+      profile?: string;
+      selectedProfiles?: string[];
+      effectiveProfileOrder?: string[];
+      metadata?: Metadata;
+    };
   },
 ): T {
   try {
