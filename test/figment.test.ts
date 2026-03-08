@@ -469,6 +469,42 @@ describe("decoder behavior", () => {
   });
 });
 
+describe("error taxonomy", () => {
+  it("supports expanded structured error kinds", () => {
+    const invalidLength = FigmentError.invalidLength(4, "length 2");
+    expect(invalidLength.kind).toBe("InvalidLength");
+    expect(String(invalidLength)).toContain("length 4");
+
+    const unknownField = FigmentError.unknownField("typo", ["type", "top"]);
+    expect(unknownField.kind).toBe("UnknownField");
+    expect(String(unknownField)).toContain("expected one of: type, top");
+
+    const unknownVariant = FigmentError.unknownVariant("teal", ["red", "green", "blue"]);
+    expect(unknownVariant.kind).toBe("UnknownVariant");
+    expect(String(unknownVariant)).toContain("expected one of: red, green, blue");
+
+    const duplicateField = FigmentError.duplicateField("name");
+    expect(duplicateField.kind).toBe("DuplicateField");
+    expect(String(duplicateField)).toContain("'name'");
+
+    const unsupported = FigmentError.unsupported(Symbol("x"));
+    expect(unsupported.kind).toBe("Unsupported");
+
+    const unsupportedKey = FigmentError.unsupportedKey(true, "string key");
+    expect(unsupportedKey.kind).toBe("UnsupportedKey");
+    expect(String(unsupportedKey)).toContain("need string key");
+  });
+
+  it("keeps chain count and missing helpers", () => {
+    const missing = FigmentError.missingField("a.b");
+    const chained = FigmentError.message("second").chain(missing);
+
+    expect(missing.missing()).toBe(true);
+    expect(chained.missing()).toBe(false);
+    expect(chained.count()).toBe(2);
+  });
+});
+
 describe("multi-profile behavior", () => {
   it("selectProfiles overlays profiles in list order", async () => {
     const figment = Figment.new()
