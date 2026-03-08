@@ -1,4 +1,9 @@
-export { Figment, type ProviderProfileSelectionMode, type ValueDecoder } from "./figment.ts";
+export {
+  Figment,
+  type PathExplanation,
+  type ProviderProfileSelectionMode,
+  type ValueDecoder,
+} from "./figment.ts";
 export { type Provider } from "./provider.ts";
 export { DEFAULT_PROFILE, GLOBAL_PROFILE, profileFromEnv, profileFromEnvOr } from "./profile.ts";
 export { FigmentError } from "./core/error.ts";

@@ -505,6 +505,35 @@ describe("error taxonomy", () => {
   });
 });
 
+describe("path introspection", () => {
+  it("findPath returns optional values without throwing", async () => {
+    const figment = Figment.new().merge(Serialized.default("app.port", 8080));
+
+    expect(await figment.findPath("app.port")).toBe(8080);
+    expect(await figment.findPath("app.missing")).toBeUndefined();
+  });
+
+  it("explain returns value, metadata, and profile context", async () => {
+    const figment = Figment.new()
+      .merge(new ProfileNamedProvider("DefaultSource", "default", { app: { name: "base" } }))
+      .merge(new ProfileNamedProvider("DebugSource", "debug", { app: { name: "debug" } }))
+      .selectProfiles(["debug"]);
+
+    const resolved = await figment.explain("app.name");
+    expect(resolved.exists).toBe(true);
+    expect(resolved.value).toBe("debug");
+    expect(resolved.metadata?.name).toBe("DebugSource");
+    expect(resolved.tag?.profile).toBe("debug");
+    expect(resolved.selectedProfiles).toEqual(["debug"]);
+    expect(resolved.effectiveProfileOrder).toEqual(["default", "debug", "global"]);
+
+    const missing = await figment.explain("app.missing");
+    expect(missing.exists).toBe(false);
+    expect(missing.value).toBeUndefined();
+    expect(missing.metadata).toBeUndefined();
+  });
+});
+
 describe("multi-profile behavior", () => {
   it("selectProfiles overlays profiles in list order", async () => {
     const figment = Figment.new()

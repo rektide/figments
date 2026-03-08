@@ -34,6 +34,17 @@ export type ValueDecoder<T, V = ConfigValue> =
 
 export type ProviderProfileSelectionMode = "coalesce" | "seedWhenEmpty" | "never";
 
+export interface PathExplanation {
+  path: string;
+  exists: boolean;
+  value: ConfigValue | undefined;
+  tag: Tag | undefined;
+  metadata: Metadata | undefined;
+  profile: string;
+  selectedProfiles: string[];
+  effectiveProfileOrder: string[];
+}
+
 export class Figment implements Provider {
   private activeProfiles: string[];
   private providerProfileSelectionMode: ProviderProfileSelectionMode;
@@ -106,6 +117,29 @@ export class Figment implements Provider {
   public async findMetadata(path: string): Promise<Metadata | undefined> {
     const tag = await this.findTagForPath(path);
     return tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+  }
+
+  public async findPath(path: string): Promise<ConfigValue | undefined> {
+    const merged = await this.mergedState();
+    const value = findValue(merged.value, path);
+    return value === undefined ? undefined : deepClone(value);
+  }
+
+  public async explain(path: string): Promise<PathExplanation> {
+    const merged = await this.mergedState();
+    const value = findValue(merged.value, path);
+    const tree = findTag(merged.tags, path);
+    const tag = unwrapTag(tree);
+    const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+
+    return {
+      path,
+      exists: value !== undefined,
+      value: value === undefined ? undefined : deepClone(value),
+      tag,
+      metadata,
+      ...this.errorProfileContext(),
+    };
   }
 
   public select(profile: string): Figment {
