@@ -29,6 +29,22 @@ class NamedProvider implements Provider {
   }
 }
 
+class ProfileNamedProvider implements Provider {
+  public constructor(
+    private readonly providerName: string,
+    private readonly profileName: string,
+    private readonly payload: ConfigDict,
+  ) {}
+
+  public metadata() {
+    return metadataNamed(this.providerName);
+  }
+
+  public data() {
+    return { [this.profileName]: this.payload };
+  }
+}
+
 class TaggedEntryProvider implements Provider {
   public metadata() {
     return metadataNamed("TaggedEntryProvider");
@@ -407,5 +423,81 @@ describe("decoder behavior", () => {
     } catch (error) {
       expect(String(error)).toContain("provider key 'default.app.count'");
     }
+  });
+});
+
+describe("multi-profile behavior", () => {
+  it("selectProfiles overlays profiles in list order", async () => {
+    const figment = Figment.new()
+      .merge(new ProfileNamedProvider("DefaultSource", "default", { level: "default" }))
+      .merge(new ProfileNamedProvider("ProfileA", "a", { level: "a" }))
+      .merge(new ProfileNamedProvider("ProfileB", "b", { level: "b" }))
+      .selectProfiles(["a", "b"]);
+
+    expect(figment.selectedProfiles()).toEqual(["a", "b"]);
+    expect(await figment.extractInner<string>("level")).toBe("b");
+  });
+
+  it("normalizes, dedupes, and strips built-in profile names", async () => {
+    const figment = Figment.new().selectProfiles(["A", "a", "default", "GLOBAL", "b"]);
+
+    expect(figment.selectedProfiles()).toEqual(["a", "b"]);
+    expect(figment.profile()).toBe("a");
+  });
+
+  it("spliceProfiles supports insert, replace, and remove", () => {
+    const selected = Figment.new()
+      .selectProfiles(["a", "c"])
+      .spliceProfiles(1, 0, "b")
+      .spliceProfiles(0, 1, "x")
+      .spliceProfiles(1);
+
+    expect(selected.selectedProfiles()).toEqual(["x"]);
+  });
+
+  it("skips missing selected profiles during extraction", async () => {
+    const figment = Figment.new()
+      .merge(new ProfileNamedProvider("DefaultSource", "default", { name: "default" }))
+      .merge(new ProfileNamedProvider("ProfileA", "a", { name: "from-a" }))
+      .selectProfiles(["missing", "a"]);
+
+    expect(await figment.extractInner<string>("name")).toBe("from-a");
+  });
+
+  it("tracks winning metadata across multiple selected overlays", async () => {
+    const figment = Figment.new()
+      .merge(new ProfileNamedProvider("DefaultSource", "default", { mode: "default" }))
+      .merge(new ProfileNamedProvider("ProfileA", "a", { mode: "a" }))
+      .merge(new ProfileNamedProvider("ProfileB", "b", { mode: "b" }))
+      .merge(new ProfileNamedProvider("ProfileC", "c", { mode: "c" }));
+
+    const selectedABC = figment.selectProfiles(["a", "b", "c"]);
+    expect(await selectedABC.extractInner<string>("mode")).toBe("c");
+    expect((await selectedABC.findMetadata("mode"))?.name).toBe("ProfileC");
+
+    const selectedBA = figment.selectProfiles(["b", "a"]);
+    expect(await selectedBA.extractInner<string>("mode")).toBe("a");
+    expect((await selectedBA.findMetadata("mode"))?.name).toBe("ProfileA");
+  });
+
+  it("keeps select(profile) compatibility as single-overlay sugar", async () => {
+    const figment = Figment.new()
+      .merge(new ProfileNamedProvider("DefaultSource", "default", { value: "default" }))
+      .merge(new ProfileNamedProvider("ProfileA", "a", { value: "a" }))
+      .select("a");
+
+    expect(figment.selectedProfiles()).toEqual(["a"]);
+    expect(figment.profile()).toBe("a");
+    expect(await figment.extractInner<string>("value")).toBe("a");
+  });
+
+  it("falls back to default and global when no overlays are selected", async () => {
+    const figment = Figment.new()
+      .merge(new ProfileNamedProvider("DefaultSource", "default", { value: "default" }))
+      .merge(new ProfileNamedProvider("GlobalSource", "global", { value: "global" }))
+      .selectProfiles(["default", "global"]);
+
+    expect(figment.selectedProfiles()).toEqual([]);
+    expect(await figment.extractInner<string>("value")).toBe("global");
   });
 });
