@@ -36,8 +36,8 @@ Keep `select(profile)` for compatibility, but add explicit multi-select APIs.
 figment
   .select("staging")
   .selectProfiles(["region-eu", "tenant-acme", "staging"])
-  .appendProfiles(["incident-override"])
-  .clearSelectedProfiles();
+  .spliceProfiles(2, 0, "incident-override")
+  .spliceProfiles(0, 1);
 ```
 
 ### Concrete API proposal
@@ -46,14 +46,17 @@ figment
   - compatibility sugar for `selectProfiles([profile])`
 - `selectProfiles(profiles: string[]): Figment`
   - replace current selected profile set with ordered list
-- `appendProfiles(profiles: string[]): Figment`
-  - append overlays after current list
-- `prependProfiles(profiles: string[]): Figment`
-  - prepend overlays before current list
+- `spliceProfiles(start: number, deleteCount?: number, ...profiles: string[]): Figment`
+  - JS `Array.prototype.splice()` semantics over the selected profile list
+  - supports insert, replace, and remove in one API surface
 - `selectedProfiles(): string[]`
   - return normalized ordered overlays (custom profiles only)
-- `clearSelectedProfiles(): Figment`
-  - reset to no selected custom profiles
+
+Examples:
+
+- `spliceProfiles(1, 0, "tenant-acme")` inserts at index 1
+- `spliceProfiles(0, 2, "staging")` replaces first two with `staging`
+- `spliceProfiles(0)` removes all selected profiles from index 0 onward
 
 ## Semantics (important)
 
@@ -136,12 +139,12 @@ Add table-driven tests in [`/test/figment.test.ts`](/test/figment.test.ts):
 4. missing profile skip behavior
 5. metadata winner correctness across 3+ overlays
 6. `select()` compatibility with single profile
-7. `appendProfiles()` and `prependProfiles()` ordering
+7. `spliceProfiles()` insert/replace/remove ordering behavior
 8. no-selected case remains `default + global`
 
 ## Rollout plan
 
-1. Add APIs and internal list model.
+1. Add APIs (`selectProfiles`, `spliceProfiles`, `selectedProfiles`) and internal list model.
 2. Switch `mergedState()` to ordered fold for values and tags.
 3. Keep `select()` as compatibility sugar.
 4. Add tests for behavior and provenance.
