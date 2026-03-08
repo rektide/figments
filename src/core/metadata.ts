@@ -1,14 +1,16 @@
-export type MetadataSourceKind = string;
-
-export interface MetadataSource {
-  kind: MetadataSourceKind;
-  value: string;
-}
+export type MetadataSource =
+  | { kind: "file"; path: string }
+  | { kind: "env"; selector: string }
+  | { kind: "inline"; descriptor: string }
+  | { kind: "code"; location: string }
+  | { kind: "custom"; value: string };
 
 export const SourceKind = {
   File: "file",
   Env: "env",
   Inline: "inline",
+  Code: "code",
+  Custom: "custom",
 } as const;
 
 export interface Metadata {
@@ -28,28 +30,35 @@ export function metadataNamed(name: string): Metadata {
 export function metadataFrom(name: string, source: string): Metadata {
   return {
     ...metadataNamed(name),
-    source: { kind: "custom", value: source },
+    source: { kind: SourceKind.Custom, value: source },
   };
 }
 
 export function metadataFromFile(name: string, path: string): Metadata {
   return {
     ...metadataNamed(name),
-    source: { kind: SourceKind.File, value: path },
+    source: { kind: SourceKind.File, path },
   };
 }
 
 export function metadataFromEnv(name: string, selector: string): Metadata {
   return {
     ...metadataNamed(name),
-    source: { kind: SourceKind.Env, value: selector },
+    source: { kind: SourceKind.Env, selector },
   };
 }
 
 export function metadataFromInline(name: string, descriptor: string): Metadata {
   return {
     ...metadataNamed(name),
-    source: { kind: SourceKind.Inline, value: descriptor },
+    source: { kind: SourceKind.Inline, descriptor },
+  };
+}
+
+export function metadataFromCode(name: string, location: string): Metadata {
+  return {
+    ...metadataNamed(name),
+    source: { kind: SourceKind.Code, location },
   };
 }
 
@@ -58,13 +67,16 @@ export function formatMetadataSource(source: MetadataSource | undefined): string
     return "";
   }
 
-  if (source.kind === SourceKind.File) {
-    return `file ${source.value}`;
+  switch (source.kind) {
+    case SourceKind.File:
+      return `file ${source.path}`;
+    case SourceKind.Env:
+      return `environment ${source.selector}`;
+    case SourceKind.Inline:
+      return source.descriptor;
+    case SourceKind.Code:
+      return `code ${source.location}`;
+    case SourceKind.Custom:
+      return source.value;
   }
-
-  if (source.kind === SourceKind.Env) {
-    return `environment ${source.value}`;
-  }
-
-  return source.value;
 }
