@@ -196,3 +196,15 @@ The TypeScript port has achieved strong parity on core functionality. The main g
 - **Magic values** (fundamentally Rust-specific due to serde)
 
 The tag-based provenance system works correctly and the provider composition model is faithful to the original.
+
+## Intentional Extension Beyond Rust Parity
+
+The TypeScript port now includes an intentional extension for ordered
+multi-profile overlays:
+
+- `selectProfiles([...])`
+- `spliceProfiles(start, deleteCount?, ...profiles)`
+
+This extends Rust Figment's single selected custom profile model with explicit
+ordered priorities while preserving single-profile compatibility through
+`select(profile)`.
