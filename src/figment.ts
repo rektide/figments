@@ -119,6 +119,29 @@ export class Figment implements Provider {
     return tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
   }
 
+  public async findMetadataAll(path: string): Promise<Metadata[]> {
+    const tree = findTag((await this.mergedState()).tags, path);
+    if (!tree) {
+      return [];
+    }
+
+    const out: Metadata[] = [];
+    const seen = new Set<number>();
+    for (const metadataId of collectMetadataIds(tree)) {
+      if (seen.has(metadataId)) {
+        continue;
+      }
+
+      seen.add(metadataId);
+      const metadata = this.metadataByTag.get(metadataId);
+      if (metadata) {
+        out.push(metadata);
+      }
+    }
+
+    return out;
+  }
+
   public async findPath(path: string): Promise<ConfigValue | undefined> {
     const merged = await this.mergedState();
     const value = findValue(merged.value, path);
@@ -623,6 +646,26 @@ function lossyValue(value: ConfigValue): ConfigValue {
 
 function unwrapTag(tree: TagTree | undefined): Tag | undefined {
   return tree?.tag;
+}
+
+function collectMetadataIds(tree: TagTree): number[] {
+  const ids: number[] = [tree.tag.metadataId];
+  switch (tree.kind) {
+    case "scalar":
+      return ids;
+    case "array":
+      for (const child of tree.children) {
+        ids.push(...collectMetadataIds(child));
+      }
+
+      return ids;
+    case "dict":
+      for (const child of tree.children) {
+        ids.push(...collectMetadataIds(child));
+      }
+
+      return ids;
+  }
 }
 
 function runDecoder<T, V>(

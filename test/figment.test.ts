@@ -532,6 +532,36 @@ describe("path introspection", () => {
     expect(missing.value).toBeUndefined();
     expect(missing.metadata).toBeUndefined();
   });
+
+  it("findMetadataAll returns deterministic unique contributor metadata", async () => {
+    const figment = Figment.new()
+      .merge(
+        new NamedProvider("BaseProvider", {
+          app: {
+            name: "base",
+            ports: [80, 443],
+          },
+        }),
+      )
+      .merge(
+        new NamedProvider("IncomingProvider", {
+          app: {
+            ports: [81],
+          },
+        }),
+      );
+
+    const appSources = await figment.findMetadataAll("app");
+    expect(appSources.map((m) => m.name)).toEqual(["IncomingProvider", "BaseProvider"]);
+
+    const portSources = await figment.findMetadataAll("app.ports");
+    expect(portSources.map((m) => m.name)).toEqual(["IncomingProvider"]);
+
+    const leafSources = await figment.findMetadataAll("app.name");
+    expect(leafSources.map((m) => m.name)).toEqual(["BaseProvider"]);
+
+    expect(await figment.findMetadataAll("app.missing")).toEqual([]);
+  });
 });
 
 describe("multi-profile behavior", () => {
