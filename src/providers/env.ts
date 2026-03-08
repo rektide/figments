@@ -9,17 +9,22 @@ import { nest } from "../core/path.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "../core/types.ts";
 
 type KeyTransform = (key: string) => string | undefined;
+type ValueParser = (value: string) => ConfigValue;
 
 export class Env implements Provider {
   private readonly transforms: KeyTransform[];
   private profileName: string;
   private prefixValue?: string;
   private shouldLowercase: boolean;
+  private ignoreEmptyValues: boolean;
+  private parserFn: ValueParser;
 
   private constructor(transforms: KeyTransform[] = []) {
     this.transforms = transforms;
     this.profileName = DEFAULT_PROFILE;
     this.shouldLowercase = true;
+    this.ignoreEmptyValues = false;
+    this.parserFn = parseEnvironmentValue;
   }
 
   public static raw(): Env {
@@ -64,6 +69,18 @@ export class Env implements Provider {
     return this.map((key) => key.replaceAll(pattern, "."));
   }
 
+  public parser(parserFn: ValueParser): Env {
+    const copy = this.clone();
+    copy.parserFn = parserFn;
+    return copy;
+  }
+
+  public ignoreEmpty(ignore: boolean): Env {
+    const copy = this.clone();
+    copy.ignoreEmptyValues = ignore;
+    return copy;
+  }
+
   public ignore(keys: string[]): Env {
     const set = new Set(keys.map((key) => key.toLowerCase()));
     return this.filter((key) => !set.has(key.toLowerCase()));
@@ -106,7 +123,7 @@ export class Env implements Provider {
     let dict: ConfigDict = {};
 
     for (const [key, value] of this.iter()) {
-      const nested = nest(key, parseEnvironmentValue(value));
+      const nested = nest(key, this.parserFn(value));
       dict = coalesceDict(dict, nested, "zipmerge");
     }
 
@@ -120,6 +137,10 @@ export class Env implements Provider {
 
     for (const [rawKey, rawValue] of Object.entries(source)) {
       if (rawValue === undefined) {
+        continue;
+      }
+
+      if (this.ignoreEmptyValues && rawValue.length === 0) {
         continue;
       }
 
@@ -190,6 +211,8 @@ export class Env implements Provider {
     this.profileName = other.profileName;
     this.prefixValue = other.prefixValue;
     this.shouldLowercase = other.shouldLowercase;
+    this.ignoreEmptyValues = other.ignoreEmptyValues;
+    this.parserFn = other.parserFn;
     return this;
   }
 }

@@ -324,6 +324,49 @@ describe("provider behavior", () => {
       await rm(temp, { recursive: true, force: true });
     }
   });
+
+  it("supports custom env value parser", async () => {
+    process.env.TEST_FIGMENT_ENVFIX_LIST = "[1,2,3]";
+    process.env.TEST_FIGMENT_ENVFIX_COUNT = "7";
+
+    try {
+      const figment = Figment.new().merge(
+        Env.prefixed("TEST_FIGMENT_ENVFIX_").parser((value) => {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return value;
+          }
+        }),
+      );
+
+      const config = await figment.extract<{ list: number[]; count: number }>();
+      expect(config.list).toEqual([1, 2, 3]);
+      expect(config.count).toBe(7);
+    } finally {
+      delete process.env.TEST_FIGMENT_ENVFIX_LIST;
+      delete process.env.TEST_FIGMENT_ENVFIX_COUNT;
+    }
+  });
+
+  it("supports ignoring empty env values", async () => {
+    process.env.TEST_FIGMENT_ENVFIX_EMPTY = "";
+    process.env.TEST_FIGMENT_ENVFIX_SET = "present";
+
+    try {
+      const withEmpty = Figment.new().merge(Env.prefixed("TEST_FIGMENT_ENVFIX_"));
+      expect(await withEmpty.extractInner<string>("empty")).toBe("");
+
+      const ignoreEmpty = Figment.new().merge(
+        Env.prefixed("TEST_FIGMENT_ENVFIX_").ignoreEmpty(true),
+      );
+      expect(await ignoreEmpty.contains("empty")).toBe(false);
+      expect(await ignoreEmpty.extractInner<string>("set")).toBe("present");
+    } finally {
+      delete process.env.TEST_FIGMENT_ENVFIX_EMPTY;
+      delete process.env.TEST_FIGMENT_ENVFIX_SET;
+    }
+  });
 });
 
 describe("decoder behavior", () => {
