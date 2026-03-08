@@ -417,27 +417,27 @@ export class Figment implements Provider {
 
     const defaults = this.values[DEFAULT_PROFILE] ?? {};
     const globals = this.values[GLOBAL_PROFILE] ?? {};
-    const selectedProfile = this.primaryProfile();
-    const selected = this.values[selectedProfile];
 
     const defaultTags = this.tags[DEFAULT_PROFILE] ?? emptyTagDictNode();
     const globalTags = this.tags[GLOBAL_PROFILE] ?? emptyTagDictNode();
-    const selectedTags = this.tags[selectedProfile];
 
-    if (selected && isCustomProfile(selectedProfile)) {
-      return {
-        value: coalesceDict(coalesceDict(defaults, selected, "merge"), globals, "merge"),
-        tags: coalesceTagDictNode(
-          coalesceTagDictNode(defaultTags, selectedTags ?? emptyTagDictNode(), "merge"),
-          globalTags,
-          "merge",
-        ),
-      };
+    let value = deepClone(defaults);
+    let tags = cloneTagDictNode(defaultTags);
+    for (const profile of this.activeProfiles) {
+      const selected = this.values[profile];
+      if (selected && isCustomProfile(profile)) {
+        value = coalesceDict(value, selected, "merge");
+      }
+
+      const selectedTags = this.tags[profile];
+      if (selectedTags && isCustomProfile(profile)) {
+        tags = coalesceTagDictNode(tags, selectedTags, "merge");
+      }
     }
 
     return {
-      value: coalesceDict(defaults, globals, "merge"),
-      tags: coalesceTagDictNode(defaultTags, globalTags, "merge"),
+      value: coalesceDict(value, globals, "merge"),
+      tags: coalesceTagDictNode(tags, globalTags, "merge"),
     };
   }
 
