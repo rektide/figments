@@ -33,7 +33,7 @@ export type ValueDecoder<T, V = ConfigValue> =
     };
 
 export class Figment implements Provider {
-  private activeProfile: string;
+  private activeProfiles: string[];
   private readonly metadataByTag: Map<number, Metadata>;
   private values: ProfileMap;
   private tags: ProfileTagMap;
@@ -42,7 +42,7 @@ export class Figment implements Provider {
   private pending: Promise<void>;
 
   public constructor() {
-    this.activeProfile = DEFAULT_PROFILE;
+    this.activeProfiles = [];
     this.metadataByTag = new Map();
     this.values = {};
     this.tags = {};
@@ -72,11 +72,15 @@ export class Figment implements Provider {
   }
 
   public profile(): string {
-    return this.activeProfile;
+    return this.primaryProfile();
   }
 
   public selectedProfile(): string {
-    return this.activeProfile;
+    return this.primaryProfile();
+  }
+
+  public selectedProfiles(): string[] {
+    return [...this.activeProfiles];
   }
 
   public metadataEntries(): Metadata[] {
@@ -101,15 +105,42 @@ export class Figment implements Provider {
   }
 
   public select(profile: string): Figment {
-    const normalized = normalizeProfile(profile);
+    return this.selectProfiles([profile]);
+  }
+
+  public selectProfiles(profiles: string[]): Figment {
+    const normalized = normalizeSelectedProfiles(profiles);
     const next = this.fork();
-    next.activeProfile = normalized;
+    next.activeProfiles = normalized;
     next.pending = next.pending.then(() => {
       if (next.failure) {
         return;
       }
 
-      next.activeProfile = normalized;
+      next.activeProfiles = normalized;
+    });
+
+    return next;
+  }
+
+  public spliceProfiles(start: number, deleteCount?: number, ...profiles: string[]): Figment {
+    const next = this.fork();
+    const selected = [...this.activeProfiles];
+
+    if (deleteCount === undefined) {
+      selected.splice(start);
+    } else {
+      selected.splice(start, deleteCount, ...profiles);
+    }
+
+    const normalized = normalizeSelectedProfiles(selected);
+    next.activeProfiles = normalized;
+    next.pending = next.pending.then(() => {
+      if (next.failure) {
+        return;
+      }
+
+      next.activeProfiles = normalized;
     });
 
     return next;
@@ -148,7 +179,7 @@ export class Figment implements Provider {
     const value = await this.merged();
     return decode
       ? runDecoder(value, decode, "config", {
-          context: { profile: this.activeProfile },
+          context: { profile: this.primaryProfile() },
         })
       : (value as T);
   }
@@ -161,7 +192,7 @@ export class Figment implements Provider {
     const value = lossyConfig(await this.merged());
     return decode
       ? runDecoder(value, decode, "lossy config", {
-          context: { profile: this.activeProfile },
+          context: { profile: this.primaryProfile() },
         })
       : (value as T);
   }
@@ -182,7 +213,7 @@ export class Figment implements Provider {
       path,
       context: {
         tag,
-        profile: this.activeProfile,
+        profile: this.primaryProfile(),
         metadata,
       },
     });
@@ -203,7 +234,7 @@ export class Figment implements Provider {
       path,
       context: {
         tag,
-        profile: this.activeProfile,
+        profile: this.primaryProfile(),
         metadata,
       },
     });
@@ -222,7 +253,7 @@ export class Figment implements Provider {
     const merged = await this.mergedState();
     const value = findValue(merged.value, path);
     if (value === undefined) {
-      throw FigmentError.missingField(path, this.activeProfile);
+      throw FigmentError.missingField(path, this.primaryProfile());
     }
 
     return value;
@@ -270,7 +301,11 @@ export class Figment implements Provider {
       : undefined;
 
     if (normalizedProviderProfile) {
-      next.activeProfile = profileCoalesce(this.activeProfile, normalizedProviderProfile, order);
+      next.activeProfiles = coalescedProfileSelection(
+        this.primaryProfile(),
+        normalizedProviderProfile,
+        order,
+      );
     }
 
     next.pending = next.pending.then(async () => {
@@ -279,8 +314,8 @@ export class Figment implements Provider {
       }
 
       if (normalizedProviderProfile) {
-        next.activeProfile = profileCoalesce(
-          next.activeProfile,
+        next.activeProfiles = coalescedProfileSelection(
+          next.primaryProfile(),
           normalizedProviderProfile,
           order,
         );
@@ -301,7 +336,7 @@ export class Figment implements Provider {
           incoming = normalizeProfiles(await provider.data());
           incomingTags = remapProfileTagMap(cloneProfileTagMap(importedTagMap), remap);
         } else {
-          contextTag = next.allocateTag(next.activeProfile);
+          contextTag = next.allocateTag(next.primaryProfile());
           contextMetadata = provider.metadata();
           contextMetadata.provideLocation = provideLocation;
           next.metadataByTag.set(contextTag.metadataId, contextMetadata);
@@ -317,7 +352,7 @@ export class Figment implements Provider {
             ? error.withContext({
                 metadata: contextMetadata,
                 tag: contextTag,
-                profile: next.activeProfile,
+                profile: next.primaryProfile(),
               })
             : FigmentError.message(error instanceof Error ? error.message : String(error));
 
@@ -331,7 +366,7 @@ export class Figment implements Provider {
   private fork(): Figment {
     const next = new Figment();
     next.pending = this.pending.then(() => {
-      next.activeProfile = this.activeProfile;
+      next.activeProfiles = [...this.activeProfiles];
       next.values = deepClone(this.values);
       next.tags = cloneProfileTagMap(this.tags);
       next.failure = this.failure;
@@ -365,7 +400,7 @@ export class Figment implements Provider {
         continue;
       }
 
-      const replacement = this.allocateTag(this.activeProfile);
+      const replacement = this.allocateTag(this.primaryProfile());
       remap.set(metadataId, replacement.metadataId);
       this.metadataByTag.set(replacement.metadataId, metadata);
     }
@@ -382,13 +417,14 @@ export class Figment implements Provider {
 
     const defaults = this.values[DEFAULT_PROFILE] ?? {};
     const globals = this.values[GLOBAL_PROFILE] ?? {};
-    const selected = this.values[this.activeProfile];
+    const selectedProfile = this.primaryProfile();
+    const selected = this.values[selectedProfile];
 
     const defaultTags = this.tags[DEFAULT_PROFILE] ?? emptyTagDictNode();
     const globalTags = this.tags[GLOBAL_PROFILE] ?? emptyTagDictNode();
-    const selectedTags = this.tags[this.activeProfile];
+    const selectedTags = this.tags[selectedProfile];
 
-    if (selected && isCustomProfile(this.activeProfile)) {
+    if (selected && isCustomProfile(selectedProfile)) {
       return {
         value: coalesceDict(coalesceDict(defaults, selected, "merge"), globals, "merge"),
         tags: coalesceTagDictNode(
@@ -409,6 +445,10 @@ export class Figment implements Provider {
     const tree = findTag((await this.mergedState()).tags, path);
     return unwrapTag(tree);
   }
+
+  private primaryProfile(): string {
+    return this.activeProfiles[0] ?? DEFAULT_PROFILE;
+  }
 }
 
 function normalizeProfiles(map: ProfileMap): ProfileMap {
@@ -418,6 +458,27 @@ function normalizeProfiles(map: ProfileMap): ProfileMap {
   }
 
   return out;
+}
+
+function normalizeSelectedProfiles(profiles: string[]): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const profile of profiles) {
+    const next = normalizeProfile(profile);
+    if (!isCustomProfile(next) || seen.has(next)) {
+      continue;
+    }
+
+    seen.add(next);
+    normalized.push(next);
+  }
+
+  return normalized;
+}
+
+function coalescedProfileSelection(current: string, incoming: string, order: CoalesceOrder): string[] {
+  const profile = profileCoalesce(current, incoming, order);
+  return isCustomProfile(profile) ? [profile] : [];
 }
 
 function lossyConfig(value: ConfigDict): ConfigDict {

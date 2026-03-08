@@ -160,3 +160,55 @@ That gives you:
 - predictable precedence
 - richer real-world config composition for tenant/region/environment overlays
 - clear docs for a deliberate divergence from Rust Figment.
+
+## Breakdown of work
+
+### Workstream A: API and state model
+
+1. Add `activeProfiles: string[]` to `Figment` and remove single-profile storage.
+2. Add `selectProfiles(profiles)` to replace the list (normalize + dedupe + strip built-ins).
+3. Add `spliceProfiles(start, deleteCount?, ...profiles)` with JS splice semantics on the selected list.
+4. Keep `select(profile)` as sugar for `selectProfiles([profile])`.
+5. Add `selectedProfiles()` getter returning a defensive copy.
+
+### Workstream B: effective merge algorithm
+
+1. Refactor `mergedState()` to fold in this order: `default`, selected overlays, `global`.
+2. Apply the same ordered fold to both value tree and tag tree.
+3. Ensure empty/missing selected profiles are skipped without error.
+4. Keep no-selection behavior equivalent to current `default + global`.
+
+### Workstream C: provider interaction rules
+
+1. Preserve provider profile behavior for data emission only.
+2. Stop implicit provider-driven rewrite of selected overlay list.
+3. If needed for compatibility, only seed selection from provider profile when the selected list is empty.
+
+### Workstream D: provenance and errors
+
+1. Verify winner metadata follows the same ordered profile fold.
+2. Add error context fields for `selectedProfiles` and `effectiveProfileOrder`.
+3. Ensure missing-field and decoder errors remain deterministic with multi-overlay selection.
+
+### Workstream E: test matrix
+
+1. Add table tests for `selectProfiles` order and dedupe.
+2. Add table tests for `spliceProfiles` insert/replace/remove semantics.
+3. Add tests for built-in profile stripping (`default`, `global`).
+4. Add tests for missing selected profile skip behavior.
+5. Add provenance tests across 3+ selected overlays.
+6. Add compatibility tests for `select(profile)` behavior.
+
+### Workstream F: docs and migration
+
+1. Update README with multi-profile precedence examples.
+2. Document `spliceProfiles()` semantics with examples matching JS splice behavior.
+3. Document compatibility: single-profile users can continue to use `select()` unchanged.
+4. Update parity notes to call this feature an intentional extension beyond Rust Figment.
+
+### Acceptance gates
+
+- API supports replace/insert/remove via `spliceProfiles()`.
+- Effective extraction order is deterministic and test-covered.
+- Provenance winner attribution remains correct under multi-overlay selection.
+- Existing single-profile code paths remain behaviorally compatible.
