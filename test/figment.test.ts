@@ -503,6 +503,41 @@ describe("error taxonomy", () => {
     expect(chained.missing()).toBe(false);
     expect(chained.count()).toBe(2);
   });
+
+  it("provides iterable chain traversal helpers", () => {
+    const e1 = FigmentError.message("one");
+    const e2 = FigmentError.message("two").chain(e1);
+    const e3 = FigmentError.message("three").chain(e2);
+
+    expect(e3.toArray().map((error) => error.message)).toEqual(["three", "two", "one"]);
+    expect([...e3].map((error) => error.message)).toEqual(["three", "two", "one"]);
+  });
+
+  it("maps decoder issue arrays into chained figment errors", () => {
+    const mapped = FigmentError.decode("config", {
+      issues: [
+        {
+          code: "invalid_type",
+          message: "expected number, received string",
+          expected: "number",
+          received: "oops",
+          path: ["app", "port"],
+        },
+        {
+          code: "unrecognized_keys",
+          message: "unrecognized key(s): extra",
+          keys: ["extra"],
+          path: ["app"],
+        },
+      ],
+    });
+
+    expect(mapped.kind).toBe("InvalidType");
+    expect(mapped.path).toEqual(["app", "port"]);
+    expect(mapped.count()).toBe(2);
+    expect(mapped.previous?.kind).toBe("UnknownField");
+    expect(mapped.previous?.path).toEqual(["app"]);
+  });
 });
 
 describe("path introspection", () => {

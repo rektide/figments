@@ -25,6 +25,16 @@ export type ActualType =
   | "dict"
   | "other";
 
+export interface DecoderIssue {
+  message: string;
+  path?: string | Array<string | number>;
+  code?: string;
+  expected?: string;
+  received?: unknown;
+  options?: string[];
+  keys?: string[];
+}
+
 interface FigmentErrorOptions {
   path?: string[];
   tag?: Tag;
@@ -167,8 +177,27 @@ export class FigmentError extends Error {
   }
 
   public static decode(scope: string, error: unknown): FigmentError {
+    const issues = decodeIssues(error);
+    if (issues.length > 0) {
+      return FigmentError.decodeIssues(scope, issues);
+    }
+
     const detail = error instanceof Error ? error.message : String(error);
     return new FigmentError("Decode", `failed to decode ${scope}: ${detail}`);
+  }
+
+  public static decodeIssues(scope: string, issues: DecoderIssue[]): FigmentError {
+    if (issues.length === 0) {
+      return new FigmentError("Decode", `failed to decode ${scope}: unknown decoder issue`);
+    }
+
+    let chained: FigmentError | undefined;
+    for (let i = issues.length - 1; i >= 0; i -= 1) {
+      const current = fromDecoderIssue(scope, issues[i]);
+      chained = chained ? current.chain(chained) : current;
+    }
+
+    return chained ?? new FigmentError("Decode", `failed to decode ${scope}: unknown decoder issue`);
   }
 
   public static invalidType(expected: string, actualValue: unknown): FigmentError {
@@ -233,6 +262,22 @@ export class FigmentError extends Error {
     return 1 + (this.previous?.count() ?? 0);
   }
 
+  public *errors(): IterableIterator<FigmentError> {
+    let current: FigmentError | undefined = this;
+    while (current) {
+      yield current;
+      current = current.previous;
+    }
+  }
+
+  public [Symbol.iterator](): IterableIterator<FigmentError> {
+    return this.errors();
+  }
+
+  public toArray(): FigmentError[] {
+    return [...this.errors()];
+  }
+
   public withContext(options: {
     tag?: Tag;
     profile?: string;
@@ -256,6 +301,106 @@ export class FigmentError extends Error {
       needed: this.needed,
     });
   }
+}
+
+function decodeIssues(error: unknown): DecoderIssue[] {
+  if (!error || typeof error !== "object") {
+    return [];
+  }
+
+  const maybeIssues = (error as { issues?: unknown }).issues;
+  if (!Array.isArray(maybeIssues)) {
+    return [];
+  }
+
+  return maybeIssues.flatMap((issue) => normalizeDecoderIssue(issue));
+}
+
+function normalizeDecoderIssue(issue: unknown): DecoderIssue[] {
+  if (!issue || typeof issue !== "object") {
+    return [];
+  }
+
+  const input = issue as Record<string, unknown>;
+  if (typeof input.message !== "string") {
+    return [];
+  }
+
+  const path =
+    typeof input.path === "string" || Array.isArray(input.path)
+      ? (input.path as string | Array<string | number>)
+      : undefined;
+  const options = Array.isArray(input.options)
+    ? input.options.filter((item): item is string => typeof item === "string")
+    : undefined;
+  const keys = Array.isArray(input.keys)
+    ? input.keys.filter((item): item is string => typeof item === "string")
+    : undefined;
+
+  return [
+    {
+      message: input.message,
+      path,
+      code: typeof input.code === "string" ? input.code : undefined,
+      expected: typeof input.expected === "string" ? input.expected : undefined,
+      received: input.received,
+      options,
+      keys,
+    },
+  ];
+}
+
+function fromDecoderIssue(scope: string, issue: DecoderIssue): FigmentError {
+  const path = normalizeDecoderIssuePath(issue.path);
+  let error: FigmentError;
+
+  switch (issue.code) {
+    case "invalid_type":
+      error = new FigmentError("InvalidType", `failed to decode ${scope}: ${issue.message}`, {
+        expected: issue.expected,
+        actual: actualType(issue.received),
+        actualValue: stringifyActualValue(issue.received),
+      });
+      break;
+    case "invalid_enum_value":
+    case "invalid_union_discriminator":
+      error = new FigmentError("UnknownVariant", `failed to decode ${scope}: ${issue.message}`, {
+        actualValue: stringifyActualValue(issue.received) ?? "unknown",
+        expectedValues: issue.options,
+      });
+      break;
+    case "unrecognized_keys": {
+      const first = issue.keys?.[0] ?? stringifyActualValue(issue.received) ?? "unknown";
+      error = new FigmentError("UnknownField", `failed to decode ${scope}: ${issue.message}`, {
+        actualValue: typeof first === "number" ? String(first) : first,
+        expectedValues: issue.keys,
+      });
+      break;
+    }
+    default:
+      error = new FigmentError("Decode", `failed to decode ${scope}: ${issue.message}`);
+      break;
+  }
+
+  return path ? error.withPath(path) : error;
+}
+
+function normalizeDecoderIssuePath(path: DecoderIssue["path"]): string | undefined {
+  if (path === undefined) {
+    return undefined;
+  }
+
+  if (typeof path === "string") {
+    const trimmed = path.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  const parts = path.map((part) => String(part).trim()).filter((part) => part.length > 0);
+  if (parts.length === 0) {
+    return undefined;
+  }
+
+  return parts.join(".");
 }
 
 function formatKindDetail(error: FigmentError): string {
