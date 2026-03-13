@@ -142,7 +142,7 @@ describe("figment merge behavior", () => {
     const joined = Figment.new().join(base).join(incoming);
     expect(await winnerMetadataName(joined, "name")).toBe("BaseProvider");
 
-    expect(joined.getMetadata(makeTag(99_999, "default"))).toBeUndefined();
+    expect(joined.state().metadataByTag.get(99_999)).toBeUndefined();
   });
 
   it("tracks nested winning leaf provenance", async () => {

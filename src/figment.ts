@@ -144,14 +144,6 @@ export class Figment {
     return [...this.activeProfiles];
   }
 
-  public metadataEntries(): Metadata[] {
-    return [...this.metadataByTag.values()];
-  }
-
-  public getMetadata(tag: Tag): Metadata | undefined {
-    return this.metadataByTag.get(tag.metadataId);
-  }
-
   public async explain<T = unknown>(
     options: string | ExplainOptions<T> = {},
   ): Promise<ExplainResult<T>> {
