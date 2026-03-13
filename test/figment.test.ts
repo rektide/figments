@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { Figment } from "../src/figment.ts";
 import { FigmentAggregateError, FigmentError } from "../src/core/error.ts";
+import { FIGMENTS_STATE } from "../src/state.ts";
 import { Env } from "../src/providers/env.ts";
 import { Serialized } from "../src/providers/serialized.ts";
 import { Toml } from "../src/providers/data.ts";
@@ -633,6 +634,10 @@ describe("state exposure", () => {
     }
 
     expect(await figment.extract<string>({ path: "name" })).toBe("mutated");
+
+    const symbolState = figment[FIGMENTS_STATE]();
+    expect(symbolState.values).toBe(latest.values);
+    expect(symbolState.metadataByTag).toBe(latest.metadataByTag);
   });
 });
 

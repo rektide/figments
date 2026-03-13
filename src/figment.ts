@@ -30,6 +30,7 @@ import {
   type TagTree,
   isTagDictNode,
 } from "./core/tag.ts";
+import { FIGMENTS_STATE, type Stateful } from "./state.ts";
 
 export type ValueDecoder<T, V = ConfigValue> =
   | ((value: V) => T)
@@ -83,7 +84,7 @@ export interface FigmentState {
 
 type Providable = Provider | Figment;
 
-export class Figment {
+export class Figment implements Stateful<FigmentState> {
   private activeProfiles: string[];
   private providerProfileSelectionMode: ProviderProfileSelectionMode;
   private readonly metadataByTag: Map<number, Metadata>;
@@ -120,6 +121,10 @@ export class Figment {
   }
 
   public state(): FigmentState {
+    return this[FIGMENTS_STATE]();
+  }
+
+  public [FIGMENTS_STATE](): FigmentState {
     return {
       activeProfiles: this.activeProfiles,
       providerProfileSelectionMode: this.providerProfileSelectionMode,
