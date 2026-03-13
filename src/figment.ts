@@ -81,7 +81,9 @@ export interface FigmentState {
   nextTag: number;
 }
 
-export class Figment implements Provider {
+type Providable = Provider | Figment;
+
+export class Figment {
   private activeProfiles: string[];
   private providerProfileSelectionMode: ProviderProfileSelectionMode;
   private readonly metadataByTag: Map<number, Metadata>;
@@ -106,7 +108,7 @@ export class Figment implements Provider {
     return new Figment();
   }
 
-  public static from(provider: Provider): Figment {
+  public static from(provider: Providable): Figment {
     return new Figment().provide(provider, "merge", captureProvideLocation());
   }
 
@@ -115,11 +117,6 @@ export class Figment implements Provider {
       name: "Figment",
       interpolate: (profile, keys) => `${profile}.${keys.join(".")}`,
     };
-  }
-
-  public async data(): Promise<ProfileMap> {
-    await this.ready();
-    return deepClone(this.values);
   }
 
   public state(): FigmentState {
@@ -149,14 +146,6 @@ export class Figment implements Provider {
 
   public metadataEntries(): Metadata[] {
     return [...this.metadataByTag.values()];
-  }
-
-  public metadataMap(): Map<number, Metadata> {
-    return new Map(this.metadataByTag.entries());
-  }
-
-  public tagMap(): ProfileTagMap {
-    return cloneProfileTagMap(this.tags);
   }
 
   public getMetadata(tag: Tag): Metadata | undefined {
@@ -271,27 +260,27 @@ export class Figment implements Provider {
     return next;
   }
 
-  public join(provider: Provider): Figment {
+  public join(provider: Providable): Figment {
     return this.provide(provider, "join", captureProvideLocation());
   }
 
-  public adjoin(provider: Provider): Figment {
+  public adjoin(provider: Providable): Figment {
     return this.provide(provider, "adjoin", captureProvideLocation());
   }
 
-  public zipjoin(provider: Provider): Figment {
+  public zipjoin(provider: Providable): Figment {
     return this.provide(provider, "zipjoin", captureProvideLocation());
   }
 
-  public merge(provider: Provider): Figment {
+  public merge(provider: Providable): Figment {
     return this.provide(provider, "merge", captureProvideLocation());
   }
 
-  public admerge(provider: Provider): Figment {
+  public admerge(provider: Providable): Figment {
     return this.provide(provider, "admerge", captureProvideLocation());
   }
 
-  public zipmerge(provider: Provider): Figment {
+  public zipmerge(provider: Providable): Figment {
     return this.provide(provider, "zipmerge", captureProvideLocation());
   }
 
@@ -372,7 +361,7 @@ export class Figment implements Provider {
     }
   }
 
-  private provide(provider: Provider, order: CoalesceOrder, provideLocation?: string): Figment {
+  private provide(provider: Providable, order: CoalesceOrder, provideLocation?: string): Figment {
     const next = this.fork();
     const providerProfile = provider.selectedProfile?.();
     const normalizedProviderProfile = providerProfile
@@ -409,20 +398,27 @@ export class Figment implements Provider {
         let incoming: ProfileMap;
         let incomingTags: ProfileTagMap;
 
-        const importedMetadataMap = provider.metadataMap?.();
-        const importedTagMap = provider.tagMap?.();
-
-        if (importedMetadataMap && importedTagMap) {
-          const remap = next.importMetadataMap(importedMetadataMap);
-          incoming = normalizeProfiles(await provider.data());
-          incomingTags = remapProfileTagMap(cloneProfileTagMap(importedTagMap), remap);
+        if (provider instanceof Figment) {
+          await provider.ready();
+          const remap = next.importMetadataMap(provider.metadataByTag);
+          incoming = normalizeProfiles(provider.values);
+          incomingTags = remapProfileTagMap(cloneProfileTagMap(provider.tags), remap);
         } else {
-          contextTag = next.allocateTag(next.primaryProfile());
-          contextMetadata = provider.metadata();
-          contextMetadata.provideLocation = provideLocation;
-          next.metadataByTag.set(contextTag.metadataId, contextMetadata);
-          incoming = normalizeProfiles(await provider.data());
-          incomingTags = buildTagProfileMap(incoming, contextTag);
+          const importedMetadataMap = provider.metadataMap?.();
+          const importedTagMap = provider.tagMap?.();
+
+          if (importedMetadataMap && importedTagMap) {
+            const remap = next.importMetadataMap(importedMetadataMap);
+            incoming = normalizeProfiles(await provider.data());
+            incomingTags = remapProfileTagMap(cloneProfileTagMap(importedTagMap), remap);
+          } else {
+            contextTag = next.allocateTag(next.primaryProfile());
+            contextMetadata = provider.metadata();
+            contextMetadata.provideLocation = provideLocation;
+            next.metadataByTag.set(contextTag.metadataId, contextMetadata);
+            incoming = normalizeProfiles(await provider.data());
+            incomingTags = buildTagProfileMap(incoming, contextTag);
+          }
         }
 
         next.values = coalesceProfiles(next.values, incoming, order);
