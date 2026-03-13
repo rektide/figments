@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { Figment } from "../src/figment.ts";
-import { FigmentError } from "../src/core/error.ts";
+import { FigmentAggregateError, FigmentError } from "../src/core/error.ts";
 import { Env } from "../src/providers/env.ts";
 import { Serialized } from "../src/providers/serialized.ts";
 import { Toml } from "../src/providers/data.ts";
@@ -495,25 +495,27 @@ describe("error taxonomy", () => {
     expect(String(unsupportedKey)).toContain("need string key");
   });
 
-  it("keeps chain count and missing helpers", () => {
+  it("keeps missing helper and aggregate count", () => {
     const missing = FigmentError.missingField("a.b");
-    const chained = FigmentError.message("second").chain(missing);
+    const aggregate = new FigmentAggregateError([FigmentError.message("second"), missing]);
 
     expect(missing.missing()).toBe(true);
-    expect(chained.missing()).toBe(false);
-    expect(chained.count()).toBe(2);
+    expect(aggregate.missing()).toBe(true);
+    expect(aggregate.count()).toBe(2);
   });
 
-  it("provides iterable chain traversal helpers", () => {
-    const e1 = FigmentError.message("one");
-    const e2 = FigmentError.message("two").chain(e1);
-    const e3 = FigmentError.message("three").chain(e2);
+  it("provides iterable aggregate traversal helpers", () => {
+    const aggregate = new FigmentAggregateError([
+      FigmentError.message("one"),
+      FigmentError.message("two"),
+      FigmentError.message("three"),
+    ]);
 
-    expect(e3.toArray().map((error) => error.message)).toEqual(["three", "two", "one"]);
-    expect([...e3].map((error) => error.message)).toEqual(["three", "two", "one"]);
+    expect(aggregate.toArray().map((error) => error.message)).toEqual(["one", "two", "three"]);
+    expect([...aggregate].map((error) => error.message)).toEqual(["one", "two", "three"]);
   });
 
-  it("maps decoder issue arrays into chained figment errors", () => {
+  it("maps decoder issue arrays into aggregate figment errors", () => {
     const mapped = FigmentError.decode("config", {
       issues: [
         {
@@ -532,11 +534,14 @@ describe("error taxonomy", () => {
       ],
     });
 
-    expect(mapped.kind).toBe("InvalidType");
-    expect(mapped.path).toEqual(["app", "port"]);
-    expect(mapped.count()).toBe(2);
-    expect(mapped.previous?.kind).toBe("UnknownField");
-    expect(mapped.previous?.path).toEqual(["app"]);
+    expect(mapped).toBeInstanceOf(FigmentAggregateError);
+    if (mapped instanceof FigmentAggregateError) {
+      expect(mapped.count()).toBe(2);
+      expect(mapped.errors[0].kind).toBe("InvalidType");
+      expect(mapped.errors[0].path).toEqual(["app", "port"]);
+      expect(mapped.errors[1].kind).toBe("UnknownField");
+      expect(mapped.errors[1].path).toEqual(["app"]);
+    }
   });
 });
 

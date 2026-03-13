@@ -8,7 +8,12 @@ import {
   profileCoalesce,
   type CoalesceOrder,
 } from "./core/coalesce.ts";
-import { FigmentError } from "./core/error.ts";
+import {
+  type FigmentFailure,
+  FigmentError,
+  isFigmentFailure,
+  mergeFigmentFailures,
+} from "./core/error.ts";
 import { findTag, findValue } from "./core/path.ts";
 import type { Metadata } from "./core/metadata.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "./core/types.ts";
@@ -51,7 +56,7 @@ export class Figment implements Provider {
   private readonly metadataByTag: Map<number, Metadata>;
   private values: ProfileMap;
   private tags: ProfileTagMap;
-  private failure?: FigmentError;
+  private failure?: FigmentFailure;
   private nextTag: number;
   private pending: Promise<void>;
 
@@ -425,15 +430,21 @@ export class Figment implements Provider {
         next.tags = coalesceTagProfiles(next.tags, incomingTags, order);
       } catch (error) {
         const figmentError =
-          error instanceof FigmentError
+          isFigmentFailure(error)
             ? error.withContext({
                 metadata: contextMetadata,
                 tag: contextTag,
                 ...next.errorProfileContext(),
               })
-            : FigmentError.message(error instanceof Error ? error.message : String(error));
+            : FigmentError.message(error instanceof Error ? error.message : String(error)).withContext(
+                {
+                  metadata: contextMetadata,
+                  tag: contextTag,
+                  ...next.errorProfileContext(),
+                },
+              );
 
-        next.failure = next.failure ? figmentError.chain(next.failure) : figmentError;
+        next.failure = mergeFigmentFailures(figmentError, next.failure);
       }
     });
 
@@ -690,8 +701,8 @@ function runDecoder<T, V>(
 
     return decode.parse(value);
   } catch (error) {
-    let figmentError =
-      error instanceof FigmentError ? error : FigmentError.decode(scope, error);
+    let figmentError: FigmentFailure =
+      isFigmentFailure(error) ? error : FigmentError.decode(scope, error);
 
     if (options?.path) {
       figmentError = figmentError.withPath(options.path);

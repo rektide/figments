@@ -35,14 +35,16 @@ export interface DecoderIssue {
   keys?: string[];
 }
 
-interface FigmentErrorOptions {
-  path?: string[];
+export interface FigmentErrorContext {
   tag?: Tag;
   profile?: string;
   selectedProfiles?: string[];
   effectiveProfileOrder?: string[];
   metadata?: Metadata;
-  previous?: FigmentError;
+}
+
+interface FigmentErrorOptions extends FigmentErrorContext {
+  path?: string[];
   expected?: string;
   actual?: ActualType;
   actualValue?: string | number;
@@ -50,6 +52,8 @@ interface FigmentErrorOptions {
   field?: string;
   needed?: string;
 }
+
+export type FigmentFailure = FigmentError | FigmentAggregateError;
 
 export class FigmentError extends Error {
   readonly kind: FigmentErrorKind;
@@ -59,7 +63,6 @@ export class FigmentError extends Error {
   readonly selectedProfiles?: string[];
   readonly effectiveProfileOrder?: string[];
   readonly metadata?: Metadata;
-  readonly previous?: FigmentError;
   readonly expected?: string;
   readonly actual?: ActualType;
   readonly actualValue?: string | number;
@@ -79,7 +82,6 @@ export class FigmentError extends Error {
       ? [...options.effectiveProfileOrder]
       : undefined;
     this.metadata = options?.metadata;
-    this.previous = options?.previous;
     this.expected = options?.expected;
     this.actual = options?.actual;
     this.actualValue = options?.actualValue;
@@ -96,7 +98,6 @@ export class FigmentError extends Error {
       selectedProfiles: this.selectedProfiles,
       effectiveProfileOrder: this.effectiveProfileOrder,
       metadata: this.metadata,
-      previous: this.previous,
       expected: this.expected,
       actual: this.actual,
       actualValue: this.actualValue,
@@ -106,15 +107,14 @@ export class FigmentError extends Error {
     });
   }
 
-  public chain(previous: FigmentError): FigmentError {
+  public withContext(options: FigmentErrorContext): FigmentError {
     return new FigmentError(this.kind, this.message, {
       path: this.path,
-      tag: this.tag,
-      profile: this.profile,
-      selectedProfiles: this.selectedProfiles,
-      effectiveProfileOrder: this.effectiveProfileOrder,
-      metadata: this.metadata,
-      previous,
+      tag: options.tag ?? this.tag,
+      profile: options.profile ?? this.profile,
+      selectedProfiles: options.selectedProfiles ?? this.selectedProfiles,
+      effectiveProfileOrder: options.effectiveProfileOrder ?? this.effectiveProfileOrder,
+      metadata: options.metadata ?? this.metadata,
       expected: this.expected,
       actual: this.actual,
       actualValue: this.actualValue,
@@ -122,6 +122,10 @@ export class FigmentError extends Error {
       field: this.field,
       needed: this.needed,
     });
+  }
+
+  public missing(): boolean {
+    return this.kind === "MissingField";
   }
 
   public toString(): string {
@@ -146,14 +150,10 @@ export class FigmentError extends Error {
       this.effectiveProfileOrder && this.effectiveProfileOrder.length > 0
         ? ` [profile order: ${this.effectiveProfileOrder.join(" -> ")}]`
         : "";
-    const base =
+    return (
       `${this.message}${mismatchSuffix}${detailSuffix}${keySuffix}${sourceSuffix}${providerKeySuffix}` +
-      profileOrderSuffix;
-    if (!this.previous) {
-      return base;
-    }
-
-    return `${base}\n${this.previous.toString()}`;
+      profileOrderSuffix
+    );
   }
 
   public static missingField(
@@ -176,7 +176,7 @@ export class FigmentError extends Error {
     return new FigmentError("Message", message);
   }
 
-  public static decode(scope: string, error: unknown): FigmentError {
+  public static decode(scope: string, error: unknown): FigmentFailure {
     const issues = decodeIssues(error);
     if (issues.length > 0) {
       return FigmentError.decodeIssues(scope, issues);
@@ -186,18 +186,17 @@ export class FigmentError extends Error {
     return new FigmentError("Decode", `failed to decode ${scope}: ${detail}`);
   }
 
-  public static decodeIssues(scope: string, issues: DecoderIssue[]): FigmentError {
+  public static decodeIssues(scope: string, issues: DecoderIssue[]): FigmentFailure {
     if (issues.length === 0) {
       return new FigmentError("Decode", `failed to decode ${scope}: unknown decoder issue`);
     }
 
-    let chained: FigmentError | undefined;
-    for (let i = issues.length - 1; i >= 0; i -= 1) {
-      const current = fromDecoderIssue(scope, issues[i]);
-      chained = chained ? current.chain(chained) : current;
+    const mapped = issues.map((issue) => fromDecoderIssue(scope, issue));
+    if (mapped.length === 1) {
+      return mapped[0];
     }
 
-    return chained ?? new FigmentError("Decode", `failed to decode ${scope}: unknown decoder issue`);
+    return new FigmentAggregateError(mapped, `failed to decode ${scope} with ${mapped.length} issues`);
   }
 
   public static invalidType(expected: string, actualValue: unknown): FigmentError {
@@ -253,54 +252,79 @@ export class FigmentError extends Error {
       needed,
     });
   }
+}
 
-  public missing(): boolean {
-    return this.kind === "MissingField";
+export class FigmentAggregateError extends AggregateError {
+  declare readonly errors: FigmentError[];
+
+  public constructor(errors: Iterable<FigmentError>, message = "multiple figment errors") {
+    const normalized = [...errors];
+    super(normalized, message);
+    this.name = "FigmentAggregateError";
+    this.errors = normalized;
+  }
+
+  public withPath(path: string): FigmentAggregateError {
+    return new FigmentAggregateError(this.errors.map((error) => error.withPath(path)), this.message);
+  }
+
+  public withContext(context: FigmentErrorContext): FigmentAggregateError {
+    return new FigmentAggregateError(
+      this.errors.map((error) => error.withContext(context)),
+      this.message,
+    );
   }
 
   public count(): number {
-    return 1 + (this.previous?.count() ?? 0);
+    return this.errors.length;
   }
 
-  public *errors(): IterableIterator<FigmentError> {
-    let current: FigmentError | undefined = this;
-    while (current) {
-      yield current;
-      current = current.previous;
+  public missing(): boolean {
+    return this.errors.some((error) => error.missing());
+  }
+
+  public *values(): IterableIterator<FigmentError> {
+    for (const error of this.errors) {
+      yield error;
     }
   }
 
   public [Symbol.iterator](): IterableIterator<FigmentError> {
-    return this.errors();
+    return this.values();
   }
 
   public toArray(): FigmentError[] {
-    return [...this.errors()];
+    return [...this.errors];
   }
 
-  public withContext(options: {
-    tag?: Tag;
-    profile?: string;
-    selectedProfiles?: string[];
-    effectiveProfileOrder?: string[];
-    metadata?: Metadata;
-  }): FigmentError {
-    return new FigmentError(this.kind, this.message, {
-      path: this.path,
-      tag: options.tag ?? this.tag,
-      profile: options.profile ?? this.profile,
-      selectedProfiles: options.selectedProfiles ?? this.selectedProfiles,
-      effectiveProfileOrder: options.effectiveProfileOrder ?? this.effectiveProfileOrder,
-      metadata: options.metadata ?? this.metadata,
-      previous: this.previous,
-      expected: this.expected,
-      actual: this.actual,
-      actualValue: this.actualValue,
-      expectedValues: this.expectedValues,
-      field: this.field,
-      needed: this.needed,
-    });
+  public toString(): string {
+    return [this.message, ...this.errors.map((error) => error.toString())].join("\n");
   }
+}
+
+export function isFigmentFailure(error: unknown): error is FigmentFailure {
+  return error instanceof FigmentError || error instanceof FigmentAggregateError;
+}
+
+export function flattenFigmentFailure(error: FigmentFailure): FigmentError[] {
+  if (error instanceof FigmentAggregateError) {
+    return error.toArray();
+  }
+
+  return [error];
+}
+
+export function mergeFigmentFailures(
+  incoming: FigmentFailure,
+  previous: FigmentFailure | undefined,
+): FigmentFailure {
+  if (!previous) {
+    return incoming;
+  }
+
+  return new FigmentAggregateError(
+    [...flattenFigmentFailure(incoming), ...flattenFigmentFailure(previous)],
+  );
 }
 
 function decodeIssues(error: unknown): DecoderIssue[] {
