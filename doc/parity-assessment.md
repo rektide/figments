@@ -74,7 +74,7 @@ The TypeScript `figments` port has made substantial progress. Core composition s
 | Num type | Enum with specific sizes (U8, I32, F64, etc.) | `number` (JS number) | ◐ Design diff |
 | Empty type | `None \| Unit` | `null` | ◐ Design diff |
 | `find(path)` / `find_ref(path)` | Path lookup with array index support | `findValue()`, `findTag()` | ✓ Aligned |
-| Lossy conversion | `to_bool_lossy()`, `to_num_lossy()` | `extractLossy()`, `lossyValue()` | ✓ Aligned |
+| Lossy conversion | `to_bool_lossy()`, `to_num_lossy()` | `extract({ interpret: "lossy" })`, `lossyValue()` | ✓ Aligned |
 | Serialize/Deserialize | Full serde integration | Direct JSON/TOML/YAML parse | ◐ Design diff |
 
 **Assessment:** Value representation differs due to TypeScript's type system. Provenance tracking via separate tag trees works correctly. No serde equivalent in JS ecosystem.

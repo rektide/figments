@@ -42,11 +42,11 @@ Relevant API: [`/src/figment.ts`](/src/figment.ts)
 
 ### Strong recommendation
 
-Make strict decode the default for 1.0 and keep cast-based extraction as explicitly unsafe.
+Make strict deserialization the default for 1.0 and keep unchecked extraction explicit.
 
-- Keep `extractWith()` as the strict path.
-- Keep cast extraction, but rename to something explicit like `extractUnchecked<T>()`.
-- Optionally keep `extract<T>()` as strict alias to `extractWith()` in 1.0.
+- Use `extract({ deser: ... })` as the strict path.
+- Keep unchecked extraction explicit via the absence of `deser`.
+- Keep strict/lossy interpretation explicit via `interpret: "default" | "lossy"`.
 
 ### Other viable options
 

@@ -39,12 +39,32 @@ export type ValueDecoder<T, V = ConfigValue> =
 
 export type ProviderProfileSelectionMode = "coalesce" | "seedWhenEmpty" | "never";
 
-export interface PathExplanation {
+export type InterpretMode = "default" | "lossy";
+
+export type MissingPolicy = "throw" | "undefined" | "null" | "default";
+
+export type IncludeMetadataMode = "none" | "winner" | "all";
+
+export interface ExtractOptions<T = unknown> {
+  path?: string;
+  deser?: ValueDecoder<T, any>;
+  interpret?: InterpretMode;
+  missing?: MissingPolicy;
+  fallback?: T | (() => T);
+  profiles?: string[];
+}
+
+export interface ExplainOptions<T = unknown> extends ExtractOptions<T> {
+  includeMetadata?: IncludeMetadataMode;
+}
+
+export interface ExplainResult<T = unknown> {
   path: string;
   exists: boolean;
-  value: ConfigValue | undefined;
+  value: T | ConfigValue | ConfigDict | undefined | null;
   tag: Tag | undefined;
-  metadata: Metadata | undefined;
+  metadata?: Metadata;
+  metadataAll?: Metadata[];
   profile: string;
   selectedProfiles: string[];
   effectiveProfileOrder: string[];
@@ -120,53 +140,66 @@ export class Figment implements Provider {
   }
 
   public async findMetadata(path: string): Promise<Metadata | undefined> {
-    const tag = await this.findTagForPath(path);
-    return tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+    return (await this.explain({ path, includeMetadata: "winner" })).metadata;
   }
 
   public async findMetadataAll(path: string): Promise<Metadata[]> {
-    const tree = findTag((await this.mergedState()).tags, path);
-    if (!tree) {
-      return [];
-    }
-
-    const out: Metadata[] = [];
-    const seen = new Set<number>();
-    for (const metadataId of collectMetadataIds(tree)) {
-      if (seen.has(metadataId)) {
-        continue;
-      }
-
-      seen.add(metadataId);
-      const metadata = this.metadataByTag.get(metadataId);
-      if (metadata) {
-        out.push(metadata);
-      }
-    }
-
-    return out;
+    return (await this.explain({ path, includeMetadata: "all" })).metadataAll ?? [];
   }
 
   public async findPath(path: string): Promise<ConfigValue | undefined> {
-    const merged = await this.mergedState();
-    const value = findValue(merged.value, path);
-    return value === undefined ? undefined : deepClone(value);
+    return (await this.extract({ path, missing: "undefined" })) as ConfigValue | undefined;
   }
 
-  public async explain(path: string): Promise<PathExplanation> {
-    const merged = await this.mergedState();
-    const value = findValue(merged.value, path);
-    const tree = findTag(merged.tags, path);
+  public async explain<T = unknown>(
+    options: string | ExplainOptions<T> = {},
+  ): Promise<ExplainResult<T>> {
+    const normalizedOptions =
+      typeof options === "string" ? ({ path: options } as ExplainOptions<T>) : options;
+    const path = normalizePath(normalizedOptions.path);
+    const selectedProfiles = normalizedOptions.profiles
+      ? normalizeSelectedProfiles(normalizedOptions.profiles)
+      : this.activeProfiles;
+    const interpret = normalizedOptions.interpret ?? "default";
+    const includeMetadata = normalizedOptions.includeMetadata ?? "winner";
+    const context = this.errorProfileContext(selectedProfiles);
+
+    const merged = await this.mergedState(selectedProfiles);
+    const rawValue = path ? findValue(merged.value, path) : merged.value;
+    const tree = path ? findTag(merged.tags, path) : merged.tags;
+    const exists = rawValue !== undefined;
     const tag = unwrapTag(tree);
-    const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+    const winnerMetadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+
+    const value =
+      rawValue === undefined
+        ? resolveMissingValue(path, normalizedOptions, context, "undefined")
+        : applyInterpret(rawValue, interpret);
+
+    const resolved =
+      normalizedOptions.deser && value !== undefined
+        ? runDecoder(value as unknown, normalizedOptions.deser, describeScope(path, interpret), {
+            path,
+            context: {
+              tag,
+              ...context,
+              metadata: winnerMetadata,
+            },
+          })
+        : value;
+
+    const metadata = includeMetadata === "none" ? undefined : winnerMetadata;
+    const metadataAll =
+      includeMetadata === "all" ? collectMetadata(tree, this.metadataByTag) : undefined;
 
     return {
-      path,
-      exists: value !== undefined,
-      value: value === undefined ? undefined : deepClone(value),
+      path: path ?? "",
+      exists,
+      value: cloneResolvable(resolved),
       tag,
       metadata,
-      ...this.errorProfileContext(),
+      metadataAll,
+      ...context,
     };
   }
 
@@ -255,88 +288,46 @@ export class Figment implements Provider {
     return Object.keys(this.values);
   }
 
-  public async extract<T>(decode?: ValueDecoder<T, ConfigDict>): Promise<T> {
-    const value = await this.merged();
-    return decode
-      ? runDecoder(value, decode, "config", {
-          context: this.errorProfileContext(),
-        })
-      : (value as T);
-  }
+  public async extract<T = ConfigDict>(options: ExtractOptions<T> = {}): Promise<T> {
+    const path = normalizePath(options.path);
+    const selectedProfiles = options.profiles
+      ? normalizeSelectedProfiles(options.profiles)
+      : this.activeProfiles;
+    const interpret = options.interpret ?? "default";
+    const context = this.errorProfileContext(selectedProfiles);
 
-  public async extractWith<T>(decode: ValueDecoder<T, ConfigDict>): Promise<T> {
-    return this.extract(decode);
-  }
-
-  public async extractLossy<T>(decode?: ValueDecoder<T, ConfigDict>): Promise<T> {
-    const value = lossyConfig(await this.merged());
-    return decode
-      ? runDecoder(value, decode, "lossy config", {
-          context: this.errorProfileContext(),
-        })
-      : (value as T);
-  }
-
-  public async extractLossyWith<T>(decode: ValueDecoder<T, ConfigDict>): Promise<T> {
-    return this.extractLossy(decode);
-  }
-
-  public async extractInner<T>(path: string): Promise<T> {
-    return (await this.findValue(path)) as T;
-  }
-
-  public async extractInnerWith<T>(path: string, decode: ValueDecoder<T, ConfigValue>): Promise<T> {
-    const value = await this.findValue(path);
-    const tag = await this.findTagForPath(path);
+    const merged = await this.mergedState(selectedProfiles);
+    const rawValue = path ? findValue(merged.value, path) : merged.value;
+    const tree = path ? findTag(merged.tags, path) : merged.tags;
+    const tag = unwrapTag(tree);
     const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
-    return runDecoder(value, decode, `key '${path}'`, {
-      path,
-      context: {
-        tag,
-        ...this.errorProfileContext(),
-        metadata,
-      },
-    });
-  }
 
-  public async extractInnerLossy<T>(path: string): Promise<T> {
-    return lossyValue(await this.findValue(path)) as T;
-  }
+    const value =
+      rawValue === undefined
+        ? resolveMissingValue(path, options, context, "throw")
+        : applyInterpret(rawValue, interpret);
 
-  public async extractInnerLossyWith<T>(
-    path: string,
-    decode: ValueDecoder<T, ConfigValue>,
-  ): Promise<T> {
-    const value = lossyValue(await this.findValue(path));
-    const tag = await this.findTagForPath(path);
-    const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
-    return runDecoder(value, decode, `lossy key '${path}'`, {
-      path,
-      context: {
-        tag,
-        ...this.errorProfileContext(),
-        metadata,
-      },
-    });
+    const resolved =
+      options.deser && value !== undefined
+        ? runDecoder(value as unknown, options.deser, describeScope(path, interpret), {
+            path,
+            context: {
+              tag,
+              ...context,
+              metadata,
+            },
+          })
+        : value;
+
+    return cloneResolvable(resolved) as T;
   }
 
   public async contains(path: string): Promise<boolean> {
-    try {
-      await this.findValue(path);
-      return true;
-    } catch {
-      return false;
-    }
+    return (await this.findPath(path)) !== undefined;
   }
 
   public async findValue(path: string): Promise<ConfigValue> {
-    const merged = await this.mergedState();
-    const value = findValue(merged.value, path);
-    if (value === undefined) {
-      throw FigmentError.missingField(path, this.errorProfileContext());
-    }
-
-    return value;
+    return (await this.extract({ path, missing: "throw" })) as ConfigValue;
   }
 
   public focus(path: string): Figment {
@@ -499,11 +490,10 @@ export class Figment implements Provider {
     return remap;
   }
 
-  private async merged(): Promise<ConfigDict> {
-    return (await this.mergedState()).value;
-  }
-
-  private async mergedState(): Promise<{ value: ConfigDict; tags: TagDictNode }> {
+  private async mergedState(selectedProfiles = this.activeProfiles): Promise<{
+    value: ConfigDict;
+    tags: TagDictNode;
+  }> {
     await this.ready();
 
     const defaults = this.values[DEFAULT_PROFILE] ?? {};
@@ -514,7 +504,7 @@ export class Figment implements Provider {
 
     let value = deepClone(defaults);
     let tags = cloneTagDictNode(defaultTags);
-    for (const profile of this.activeProfiles) {
+    for (const profile of selectedProfiles) {
       const selected = this.values[profile];
       if (selected && isCustomProfile(profile)) {
         value = coalesceDict(value, selected, "merge");
@@ -532,28 +522,23 @@ export class Figment implements Provider {
     };
   }
 
-  private async findTagForPath(path: string): Promise<Tag | undefined> {
-    const tree = findTag((await this.mergedState()).tags, path);
-    return unwrapTag(tree);
+  private primaryProfile(selectedProfiles = this.activeProfiles): string {
+    return selectedProfiles[0] ?? DEFAULT_PROFILE;
   }
 
-  private primaryProfile(): string {
-    return this.activeProfiles[0] ?? DEFAULT_PROFILE;
+  private effectiveProfileOrder(selectedProfiles = this.activeProfiles): string[] {
+    return [DEFAULT_PROFILE, ...selectedProfiles, GLOBAL_PROFILE];
   }
 
-  private effectiveProfileOrder(): string[] {
-    return [DEFAULT_PROFILE, ...this.activeProfiles, GLOBAL_PROFILE];
-  }
-
-  private errorProfileContext(): {
+  private errorProfileContext(selectedProfiles = this.activeProfiles): {
     profile: string;
     selectedProfiles: string[];
     effectiveProfileOrder: string[];
   } {
     return {
-      profile: this.primaryProfile(),
-      selectedProfiles: this.selectedProfiles(),
-      effectiveProfileOrder: this.effectiveProfileOrder(),
+      profile: this.primaryProfile(selectedProfiles),
+      selectedProfiles: [...selectedProfiles],
+      effectiveProfileOrder: this.effectiveProfileOrder(selectedProfiles),
     };
   }
 }
@@ -604,6 +589,105 @@ function applyProviderProfileSelection(
       return isCustomProfile(profile) ? [profile] : [];
     }
   }
+}
+
+function normalizePath(path: string | undefined): string | undefined {
+  if (path === undefined) {
+    return undefined;
+  }
+
+  const trimmed = path.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
+function applyInterpret(value: ConfigValue | ConfigDict, interpret: InterpretMode): ConfigValue | ConfigDict {
+  if (interpret === "lossy") {
+    return isConfigDict(value) ? lossyConfig(value) : lossyValue(value);
+  }
+
+  return value;
+}
+
+function resolveMissingValue<T>(
+  path: string | undefined,
+  options: Pick<ExtractOptions<T>, "missing" | "fallback">,
+  context: {
+    profile: string;
+    selectedProfiles: string[];
+    effectiveProfileOrder: string[];
+  },
+  defaultMissing: MissingPolicy,
+): T | undefined | null {
+  const missing = options.missing ?? defaultMissing;
+  const missingPath = path ?? "(root)";
+
+  switch (missing) {
+    case "undefined":
+      return undefined;
+    case "null":
+      return null;
+    case "default": {
+      const fallback =
+        typeof options.fallback === "function"
+          ? (options.fallback as () => T)()
+          : options.fallback;
+      if (fallback === undefined) {
+        throw FigmentError.invalidValue("missing fallback for missing policy 'default'")
+          .withPath(missingPath)
+          .withContext(context);
+      }
+
+      return fallback;
+    }
+    case "throw":
+      throw FigmentError.missingField(missingPath, context);
+  }
+}
+
+function describeScope(path: string | undefined, interpret: InterpretMode): string {
+  if (path) {
+    return interpret === "lossy" ? `lossy key '${path}'` : `key '${path}'`;
+  }
+
+  return interpret === "lossy" ? "lossy config" : "config";
+}
+
+function collectMetadata(tree: TagTree | undefined, metadataByTag: ReadonlyMap<number, Metadata>): Metadata[] {
+  if (!tree) {
+    return [];
+  }
+
+  const out: Metadata[] = [];
+  const seen = new Set<number>();
+  for (const metadataId of collectMetadataIds(tree)) {
+    if (seen.has(metadataId)) {
+      continue;
+    }
+
+    seen.add(metadataId);
+    const metadata = metadataByTag.get(metadataId);
+    if (metadata) {
+      out.push(metadata);
+    }
+  }
+
+  return out;
+}
+
+function cloneResolvable<T>(value: T): T {
+  if (value === undefined || value === null) {
+    return value;
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value) || isConfigDict(value)) {
+    return deepClone(value as ConfigValue) as T;
+  }
+
+  return value;
 }
 
 function lossyConfig(value: ConfigDict): ConfigDict {

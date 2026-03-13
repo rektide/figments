@@ -86,13 +86,13 @@ describe("figment merge behavior", () => {
       .join(Serialized.default("name", "base"))
       .join(Serialized.default("items", ["a"]))
       .merge(Serialized.default("name", "incoming"));
-    expect(await merged.extractInner<string>("name")).toBe("incoming");
+    expect(await merged.extract<string>({ path: "name" })).toBe("incoming");
 
     const joined = Figment.new()
       .join(Serialized.default("name", "base"))
       .join(Serialized.default("name", "ignored"));
 
-    expect(await joined.extractInner<string>("name")).toBe("base");
+    expect(await joined.extract<string>({ path: "name" })).toBe("base");
   });
 
   it("admerge concatenates arrays", async () => {
@@ -100,7 +100,7 @@ describe("figment merge behavior", () => {
       .join(Serialized.default("items", ["a"]))
       .admerge(Serialized.default("items", ["b"]));
 
-    expect(await figment.extractInner<string[]>("items")).toEqual(["a", "b"]);
+    expect(await figment.extract<string[]>({ path: "items" })).toEqual(["a", "b"]);
   });
 
   it("zipjoin and zipmerge coalesce arrays by index", async () => {
@@ -108,14 +108,14 @@ describe("figment merge behavior", () => {
     const incoming = new NamedProvider("IncomingProvider", { items: [2, 3, 4] });
 
     const joined = Figment.new().join(base).zipjoin(incoming);
-    expect(await joined.extractInner<number[]>("items")).toEqual([1, 2, 4]);
+    expect(await joined.extract<number[]>({ path: "items" })).toEqual([1, 2, 4]);
     expect((await joined.findMetadata("items"))?.name).toBe("BaseProvider");
     expect((await joined.findMetadata("items.0"))?.name).toBe("BaseProvider");
     expect((await joined.findMetadata("items.1"))?.name).toBe("BaseProvider");
     expect((await joined.findMetadata("items.2"))?.name).toBe("IncomingProvider");
 
     const merged = Figment.new().join(base).zipmerge(incoming);
-    expect(await merged.extractInner<number[]>("items")).toEqual([2, 3, 4]);
+    expect(await merged.extract<number[]>({ path: "items" })).toEqual([2, 3, 4]);
     expect((await merged.findMetadata("items"))?.name).toBe("IncomingProvider");
     expect((await merged.findMetadata("items.0"))?.name).toBe("IncomingProvider");
     expect((await merged.findMetadata("items.1"))?.name).toBe("IncomingProvider");
@@ -166,15 +166,15 @@ describe("figment merge behavior", () => {
     });
 
     const joined = Figment.new().join(base).join(incoming);
-    expect(await joined.extractInner<string[]>("items")).toEqual(["base"]);
+    expect(await joined.extract<string[]>({ path: "items" })).toEqual(["base"]);
     expect((await joined.findMetadata("items"))?.name).toBe("BaseProvider");
 
     const merged = Figment.new().join(base).merge(incoming);
-    expect(await merged.extractInner<string[]>("items")).toEqual(["incoming"]);
+    expect(await merged.extract<string[]>({ path: "items" })).toEqual(["incoming"]);
     expect((await merged.findMetadata("items"))?.name).toBe("IncomingProvider");
 
     const admerged = Figment.new().join(base).admerge(incoming);
-    expect(await admerged.extractInner<string[]>("items")).toEqual(["base", "incoming"]);
+    expect(await admerged.extract<string[]>({ path: "items" })).toEqual(["base", "incoming"]);
     expect((await admerged.findMetadata("items"))?.name).toBe("IncomingProvider");
   });
 
@@ -197,7 +197,7 @@ describe("figment merge behavior", () => {
     });
 
     const focused = Figment.new().join(base).merge(incoming).focus("app");
-    expect(await focused.extractInner<string>("server.host")).toBe("incoming");
+    expect(await focused.extract<string>({ path: "server.host" })).toBe("incoming");
     expect((await focused.findMetadata("server.host"))?.name).toBe("IncomingProvider");
     expect((await focused.findMetadata("server.port"))?.name).toBe("IncomingProvider");
   });
@@ -210,8 +210,8 @@ describe("figment merge behavior", () => {
       ]),
     );
 
-    expect(await figment.extractInner<string>("servers.1.host")).toBe("b");
-    expect(await figment.extractInner<number>("servers.0.ports.1")).toBe(443);
+    expect(await figment.extract<string>({ path: "servers.1.host" })).toBe("b");
+    expect(await figment.extract<number>({ path: "servers.0.ports.1" })).toBe(443);
     expect(await figment.contains("servers.0.ports.2")).toBe(false);
     expect((await figment.findMetadata("servers.0.ports.1"))?.name).toBe("Serialized");
   });
@@ -250,10 +250,10 @@ describe("figment merge behavior", () => {
     const selectedDebug = withDebugProfile.select("debug");
     const extended = base.merge(Serialized.default("extra", true));
 
-    expect(await base.extractInner<string>("name")).toBe("default");
-    expect(await withDebugProfile.extractInner<string>("name")).toBe("debug");
-    expect(await selectedDefault.extractInner<string>("name")).toBe("default");
-    expect(await selectedDebug.extractInner<string>("name")).toBe("debug");
+    expect(await base.extract<string>({ path: "name" })).toBe("default");
+    expect(await withDebugProfile.extract<string>({ path: "name" })).toBe("debug");
+    expect(await selectedDefault.extract<string>({ path: "name" })).toBe("default");
+    expect(await selectedDebug.extract<string>({ path: "name" })).toBe("debug");
     expect(await base.contains("extra")).toBe(false);
     expect(await extended.contains("extra")).toBe(true);
   });
@@ -275,10 +275,10 @@ describe("provider behavior", () => {
     process.env.TEST_FIGMENT_ARRAY_1 = "5";
     try {
       const figment = Figment.new().merge(Env.prefixed("TEST_FIGMENT_").split("_"));
-      const config = await figment.extractLossy<{
+      const config = await figment.extract<{
         app: { name: string; debug: boolean };
         array: number[];
-      }>();
+      }>({ interpret: "lossy" });
       expect(config.app.name).toBe("demo");
       expect(config.app.debug).toBe(true);
       expect(config.array).toEqual([4, 5, 6]);
@@ -355,13 +355,13 @@ describe("provider behavior", () => {
 
     try {
       const withEmpty = Figment.new().merge(Env.prefixed("TEST_FIGMENT_ENVFIX_"));
-      expect(await withEmpty.extractInner<string>("empty")).toBe("");
+      expect(await withEmpty.extract<string>({ path: "empty" })).toBe("");
 
       const ignoreEmpty = Figment.new().merge(
         Env.prefixed("TEST_FIGMENT_ENVFIX_").ignoreEmpty(true),
       );
       expect(await ignoreEmpty.contains("empty")).toBe(false);
-      expect(await ignoreEmpty.extractInner<string>("set")).toBe("present");
+      expect(await ignoreEmpty.extract<string>({ path: "set" })).toBe("present");
     } finally {
       delete process.env.TEST_FIGMENT_ENVFIX_EMPTY;
       delete process.env.TEST_FIGMENT_ENVFIX_SET;
@@ -370,9 +370,10 @@ describe("provider behavior", () => {
 });
 
 describe("decoder behavior", () => {
-  it("extractWith supports parse-style decoders", async () => {
+  it("extract supports parse-style deserializers", async () => {
     const figment = Figment.new().merge(Serialized.defaults({ port: "8080" }));
-    const config = await figment.extractWith({
+    const config = await figment.extract({
+      deser: {
       parse(value) {
         const raw = value.port;
         if (typeof raw !== "string") {
@@ -386,14 +387,15 @@ describe("decoder behavior", () => {
 
         return { port: parsed };
       },
+      },
     });
 
     expect(config).toEqual({ port: 8080 });
   });
 
-  it("extractInnerWith decodes path values", async () => {
+  it("extract decodes path values", async () => {
     const figment = Figment.new().merge(Serialized.default("count", "42"));
-    const count = await figment.extractInnerWith("count", (value) => {
+    const count = await figment.extract({ path: "count", deser: (value) => {
       if (typeof value !== "string") {
         throw new Error("count must be a string");
       }
@@ -404,7 +406,7 @@ describe("decoder behavior", () => {
       }
 
       return parsed;
-    });
+    } });
 
     expect(count).toBe(42);
   });
@@ -413,19 +415,21 @@ describe("decoder behavior", () => {
     const figment = Figment.new().merge(Serialized.defaults({ port: "not-a-number" }));
 
     await expect(
-      figment.extractWith({
-        parse(value) {
-          const raw = value.port;
-          if (typeof raw !== "string") {
-            throw new Error("port must be a string");
-          }
+      figment.extract({
+        deser: {
+          parse(value) {
+            const raw = value.port;
+            if (typeof raw !== "string") {
+              throw new Error("port must be a string");
+            }
 
-          const parsed = Number.parseInt(raw, 10);
-          if (Number.isNaN(parsed)) {
-            throw new Error("port must be an integer string");
-          }
+            const parsed = Number.parseInt(raw, 10);
+            if (Number.isNaN(parsed)) {
+              throw new Error("port must be an integer string");
+            }
 
-          return { port: parsed };
+            return { port: parsed };
+          },
         },
       }),
     ).rejects.toThrow("failed to decode config: port must be an integer string");
@@ -435,13 +439,13 @@ describe("decoder behavior", () => {
     const figment = Figment.new().merge(Serialized.default("count", "42"));
 
     await expect(
-      figment.extractInnerWith("count", (value) => {
+      figment.extract({ path: "count", deser: (value) => {
         if (typeof value !== "number") {
           throw FigmentError.invalidType("number", value);
         }
 
         return value;
-      }),
+      } }),
     ).rejects.toMatchObject({
       kind: "InvalidType",
       expected: "number",
@@ -456,13 +460,13 @@ describe("decoder behavior", () => {
     const figment = Figment.new().merge(Serialized.default("app.count", "oops"));
 
     try {
-      await figment.extractInnerWith("app.count", (value) => {
+      await figment.extract({ path: "app.count", deser: (value) => {
         if (typeof value !== "number") {
           throw FigmentError.invalidType("number", value);
         }
 
         return value;
-      });
+      } });
     } catch (error) {
       expect(String(error)).toContain("provider key 'default.app.count'");
     }
@@ -613,7 +617,7 @@ describe("multi-profile behavior", () => {
       .selectProfiles(["a", "b"]);
 
     expect(figment.selectedProfiles()).toEqual(["a", "b"]);
-    expect(await figment.extractInner<string>("level")).toBe("b");
+    expect(await figment.extract<string>({ path: "level" })).toBe("b");
   });
 
   it("normalizes, dedupes, and strips built-in profile names", async () => {
@@ -639,7 +643,7 @@ describe("multi-profile behavior", () => {
       .merge(new ProfileNamedProvider("ProfileA", "a", { name: "from-a" }))
       .selectProfiles(["missing", "a"]);
 
-    expect(await figment.extractInner<string>("name")).toBe("from-a");
+    expect(await figment.extract<string>({ path: "name" })).toBe("from-a");
   });
 
   it("tracks winning metadata across multiple selected overlays", async () => {
@@ -650,11 +654,11 @@ describe("multi-profile behavior", () => {
       .merge(new ProfileNamedProvider("ProfileC", "c", { mode: "c" }));
 
     const selectedABC = figment.selectProfiles(["a", "b", "c"]);
-    expect(await selectedABC.extractInner<string>("mode")).toBe("c");
+    expect(await selectedABC.extract<string>({ path: "mode" })).toBe("c");
     expect((await selectedABC.findMetadata("mode"))?.name).toBe("ProfileC");
 
     const selectedBA = figment.selectProfiles(["b", "a"]);
-    expect(await selectedBA.extractInner<string>("mode")).toBe("a");
+    expect(await selectedBA.extract<string>({ path: "mode" })).toBe("a");
     expect((await selectedBA.findMetadata("mode"))?.name).toBe("ProfileA");
   });
 
@@ -666,7 +670,7 @@ describe("multi-profile behavior", () => {
 
     expect(figment.selectedProfiles()).toEqual(["a"]);
     expect(figment.profile()).toBe("a");
-    expect(await figment.extractInner<string>("value")).toBe("a");
+    expect(await figment.extract<string>({ path: "value" })).toBe("a");
   });
 
   it("falls back to default and global when no overlays are selected", async () => {
@@ -676,7 +680,7 @@ describe("multi-profile behavior", () => {
       .selectProfiles(["default", "global"]);
 
     expect(figment.selectedProfiles()).toEqual([]);
-    expect(await figment.extractInner<string>("value")).toBe("global");
+    expect(await figment.extract<string>({ path: "value" })).toBe("global");
   });
 
   it("defaults provider profile selection mode to seedWhenEmpty", async () => {
@@ -685,7 +689,7 @@ describe("multi-profile behavior", () => {
       .merge(Serialized.default("value", "debug").profile("debug"));
 
     expect(figment.selectedProfiles()).toEqual(["debug"]);
-    expect(await figment.extractInner<string>("value")).toBe("debug");
+    expect(await figment.extract<string>({ path: "value" })).toBe("debug");
   });
 
   it("supports provider profile selection mode 'never'", async () => {
@@ -695,8 +699,8 @@ describe("multi-profile behavior", () => {
       .merge(Serialized.default("value", "debug").profile("debug"));
 
     expect(figment.selectedProfiles()).toEqual([]);
-    expect(await figment.extractInner<string>("value")).toBe("default");
-    expect(await figment.select("debug").extractInner<string>("value")).toBe("debug");
+    expect(await figment.extract<string>({ path: "value" })).toBe("default");
+    expect(await figment.select("debug").extract<string>({ path: "value" })).toBe("debug");
   });
 
   it("supports provider profile selection mode 'coalesce'", async () => {
