@@ -80,6 +80,16 @@ class TaggedEntryProvider implements Provider {
   }
 }
 
+async function winnerMetadataName(figment: Figment, path: string): Promise<string | undefined> {
+  return (await figment.explain({ path, includeMetadata: "winner" })).metadata?.name;
+}
+
+async function allMetadataNames(figment: Figment, path: string): Promise<string[]> {
+  return ((await figment.explain({ path, includeMetadata: "all" })).metadataAll ?? []).map(
+    (metadata) => metadata.name,
+  );
+}
+
 describe("figment merge behavior", () => {
   it("merge prefers incoming values while join keeps existing", async () => {
     const merged = Figment.new()
@@ -109,17 +119,17 @@ describe("figment merge behavior", () => {
 
     const joined = Figment.new().join(base).zipjoin(incoming);
     expect(await joined.extract<number[]>({ path: "items" })).toEqual([1, 2, 4]);
-    expect((await joined.findMetadata("items"))?.name).toBe("BaseProvider");
-    expect((await joined.findMetadata("items.0"))?.name).toBe("BaseProvider");
-    expect((await joined.findMetadata("items.1"))?.name).toBe("BaseProvider");
-    expect((await joined.findMetadata("items.2"))?.name).toBe("IncomingProvider");
+    expect(await winnerMetadataName(joined, "items")).toBe("BaseProvider");
+    expect(await winnerMetadataName(joined, "items.0")).toBe("BaseProvider");
+    expect(await winnerMetadataName(joined, "items.1")).toBe("BaseProvider");
+    expect(await winnerMetadataName(joined, "items.2")).toBe("IncomingProvider");
 
     const merged = Figment.new().join(base).zipmerge(incoming);
     expect(await merged.extract<number[]>({ path: "items" })).toEqual([2, 3, 4]);
-    expect((await merged.findMetadata("items"))?.name).toBe("IncomingProvider");
-    expect((await merged.findMetadata("items.0"))?.name).toBe("IncomingProvider");
-    expect((await merged.findMetadata("items.1"))?.name).toBe("IncomingProvider");
-    expect((await merged.findMetadata("items.2"))?.name).toBe("IncomingProvider");
+    expect(await winnerMetadataName(merged, "items")).toBe("IncomingProvider");
+    expect(await winnerMetadataName(merged, "items.0")).toBe("IncomingProvider");
+    expect(await winnerMetadataName(merged, "items.1")).toBe("IncomingProvider");
+    expect(await winnerMetadataName(merged, "items.2")).toBe("IncomingProvider");
   });
 
   it("tracks metadata provenance for winning values", async () => {
@@ -127,12 +137,10 @@ describe("figment merge behavior", () => {
     const incoming = new NamedProvider("IncomingProvider", { name: "incoming" });
 
     const merged = Figment.new().join(base).merge(incoming);
-    const mergedMetadata = await merged.findMetadata("name");
-    expect(mergedMetadata?.name).toBe("IncomingProvider");
+    expect(await winnerMetadataName(merged, "name")).toBe("IncomingProvider");
 
     const joined = Figment.new().join(base).join(incoming);
-    const joinedMetadata = await joined.findMetadata("name");
-    expect(joinedMetadata?.name).toBe("BaseProvider");
+    expect(await winnerMetadataName(joined, "name")).toBe("BaseProvider");
 
     expect(joined.getMetadata(makeTag(99_999, "default"))).toBeUndefined();
   });
@@ -152,8 +160,8 @@ describe("figment merge behavior", () => {
     });
 
     const merged = Figment.new().join(base).merge(incoming);
-    expect((await merged.findMetadata("server.host"))?.name).toBe("IncomingProvider");
-    expect((await merged.findMetadata("server.nested.mode"))?.name).toBe("BaseProvider");
+    expect(await winnerMetadataName(merged, "server.host")).toBe("IncomingProvider");
+    expect(await winnerMetadataName(merged, "server.nested.mode")).toBe("BaseProvider");
   });
 
   it("returns container metadata for array paths", async () => {
@@ -167,15 +175,15 @@ describe("figment merge behavior", () => {
 
     const joined = Figment.new().join(base).join(incoming);
     expect(await joined.extract<string[]>({ path: "items" })).toEqual(["base"]);
-    expect((await joined.findMetadata("items"))?.name).toBe("BaseProvider");
+    expect(await winnerMetadataName(joined, "items")).toBe("BaseProvider");
 
     const merged = Figment.new().join(base).merge(incoming);
     expect(await merged.extract<string[]>({ path: "items" })).toEqual(["incoming"]);
-    expect((await merged.findMetadata("items"))?.name).toBe("IncomingProvider");
+    expect(await winnerMetadataName(merged, "items")).toBe("IncomingProvider");
 
     const admerged = Figment.new().join(base).admerge(incoming);
     expect(await admerged.extract<string[]>({ path: "items" })).toEqual(["base", "incoming"]);
-    expect((await admerged.findMetadata("items"))?.name).toBe("IncomingProvider");
+    expect(await winnerMetadataName(admerged, "items")).toBe("IncomingProvider");
   });
 
   it("focus keeps subtree metadata provenance", async () => {
@@ -198,8 +206,8 @@ describe("figment merge behavior", () => {
 
     const focused = Figment.new().join(base).merge(incoming).focus("app");
     expect(await focused.extract<string>({ path: "server.host" })).toBe("incoming");
-    expect((await focused.findMetadata("server.host"))?.name).toBe("IncomingProvider");
-    expect((await focused.findMetadata("server.port"))?.name).toBe("IncomingProvider");
+    expect(await winnerMetadataName(focused, "server.host")).toBe("IncomingProvider");
+    expect(await winnerMetadataName(focused, "server.port")).toBe("IncomingProvider");
   });
 
   it("supports array indices in key paths", async () => {
@@ -213,12 +221,12 @@ describe("figment merge behavior", () => {
     expect(await figment.extract<string>({ path: "servers.1.host" })).toBe("b");
     expect(await figment.extract<number>({ path: "servers.0.ports.1" })).toBe(443);
     expect(await figment.contains("servers.0.ports.2")).toBe(false);
-    expect((await figment.findMetadata("servers.0.ports.1"))?.name).toBe("Serialized");
+    expect(await winnerMetadataName(figment, "servers.0.ports.1")).toBe("Serialized");
   });
 
   it("returns undefined metadata for missing paths", async () => {
     const figment = Figment.new().join(new NamedProvider("BaseProvider", { name: "base" }));
-    expect(await figment.findMetadata("missing.key")).toBeUndefined();
+    expect(await winnerMetadataName(figment, "missing.key")).toBeUndefined();
   });
 
   it("preserves inner figment metadata when merging figments", async () => {
@@ -226,20 +234,20 @@ describe("figment merge behavior", () => {
     const inner = Figment.new().join(new NamedProvider("InnerProvider", { inner: "value" }));
 
     const merged = outer.merge(inner);
-    expect((await merged.findMetadata("outer"))?.name).toBe("OuterProvider");
-    expect((await merged.findMetadata("inner"))?.name).toBe("InnerProvider");
+    expect(await winnerMetadataName(merged, "outer")).toBe("OuterProvider");
+    expect(await winnerMetadataName(merged, "inner")).toBe("InnerProvider");
   });
 
   it("records provideLocation when providers are merged", async () => {
     const figment = Figment.new().merge(new NamedProvider("BaseProvider", { name: "base" }));
-    const metadata = await figment.findMetadata("name");
+    const metadata = (await figment.explain({ path: "name", includeMetadata: "winner" })).metadata;
     expect(metadata?.provideLocation).toContain("figment.test.ts");
   });
 
   it("supports provider-supplied metadata map and per-entry tags", async () => {
     const figment = Figment.new().merge(new TaggedEntryProvider());
-    expect((await figment.findMetadata("alpha"))?.name).toBe("AlphaSource");
-    expect((await figment.findMetadata("beta"))?.name).toBe("BetaSource");
+    expect(await winnerMetadataName(figment, "alpha")).toBe("AlphaSource");
+    expect(await winnerMetadataName(figment, "beta")).toBe("BetaSource");
   });
 
   it("figment chaining methods are immutable", async () => {
@@ -550,11 +558,11 @@ describe("error taxonomy", () => {
 });
 
 describe("path introspection", () => {
-  it("findPath returns optional values without throwing", async () => {
+  it("extract with missing policy returns optional values without throwing", async () => {
     const figment = Figment.new().merge(Serialized.default("app.port", 8080));
 
-    expect(await figment.findPath("app.port")).toBe(8080);
-    expect(await figment.findPath("app.missing")).toBeUndefined();
+    expect(await figment.extract({ path: "app.port", missing: "undefined" })).toBe(8080);
+    expect(await figment.extract({ path: "app.missing", missing: "undefined" })).toBeUndefined();
   });
 
   it("explain returns value, metadata, and profile context", async () => {
@@ -563,7 +571,7 @@ describe("path introspection", () => {
       .merge(new ProfileNamedProvider("DebugSource", "debug", { app: { name: "debug" } }))
       .selectProfiles(["debug"]);
 
-    const resolved = await figment.explain("app.name");
+    const resolved = await figment.explain({ path: "app.name" });
     expect(resolved.exists).toBe(true);
     expect(resolved.value).toBe("debug");
     expect(resolved.metadata?.name).toBe("DebugSource");
@@ -571,13 +579,13 @@ describe("path introspection", () => {
     expect(resolved.selectedProfiles).toEqual(["debug"]);
     expect(resolved.effectiveProfileOrder).toEqual(["default", "debug", "global"]);
 
-    const missing = await figment.explain("app.missing");
+    const missing = await figment.explain({ path: "app.missing" });
     expect(missing.exists).toBe(false);
     expect(missing.value).toBeUndefined();
     expect(missing.metadata).toBeUndefined();
   });
 
-  it("findMetadataAll returns deterministic unique contributor metadata", async () => {
+  it("explain(includeMetadata='all') returns deterministic unique contributor metadata", async () => {
     const figment = Figment.new()
       .merge(
         new NamedProvider("BaseProvider", {
@@ -595,16 +603,10 @@ describe("path introspection", () => {
         }),
       );
 
-    const appSources = await figment.findMetadataAll("app");
-    expect(appSources.map((m) => m.name)).toEqual(["IncomingProvider", "BaseProvider"]);
-
-    const portSources = await figment.findMetadataAll("app.ports");
-    expect(portSources.map((m) => m.name)).toEqual(["IncomingProvider"]);
-
-    const leafSources = await figment.findMetadataAll("app.name");
-    expect(leafSources.map((m) => m.name)).toEqual(["BaseProvider"]);
-
-    expect(await figment.findMetadataAll("app.missing")).toEqual([]);
+    expect(await allMetadataNames(figment, "app")).toEqual(["IncomingProvider", "BaseProvider"]);
+    expect(await allMetadataNames(figment, "app.ports")).toEqual(["IncomingProvider"]);
+    expect(await allMetadataNames(figment, "app.name")).toEqual(["BaseProvider"]);
+    expect(await allMetadataNames(figment, "app.missing")).toEqual([]);
   });
 });
 
@@ -655,11 +657,11 @@ describe("multi-profile behavior", () => {
 
     const selectedABC = figment.selectProfiles(["a", "b", "c"]);
     expect(await selectedABC.extract<string>({ path: "mode" })).toBe("c");
-    expect((await selectedABC.findMetadata("mode"))?.name).toBe("ProfileC");
+    expect(await winnerMetadataName(selectedABC, "mode")).toBe("ProfileC");
 
     const selectedBA = figment.selectProfiles(["b", "a"]);
     expect(await selectedBA.extract<string>({ path: "mode" })).toBe("a");
-    expect((await selectedBA.findMetadata("mode"))?.name).toBe("ProfileA");
+    expect(await winnerMetadataName(selectedBA, "mode")).toBe("ProfileA");
   });
 
   it("keeps select(profile) compatibility as single-overlay sugar", async () => {

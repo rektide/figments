@@ -75,6 +75,6 @@ const figment = Figment.new()
 	.join(providers.Serialized.default("server.host", "base.example"))
 	.merge(providers.Serialized.default("server.host", "incoming.example"))
 
-const source = await figment.findMetadata("server.host")
+const source = (await figment.explain({ path: "server.host", includeMetadata: "winner" })).metadata
 // source?.name -> "Serialized"
 ```

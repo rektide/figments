@@ -139,18 +139,6 @@ export class Figment implements Provider {
     return this.metadataByTag.get(tag.metadataId);
   }
 
-  public async findMetadata(path: string): Promise<Metadata | undefined> {
-    return (await this.explain({ path, includeMetadata: "winner" })).metadata;
-  }
-
-  public async findMetadataAll(path: string): Promise<Metadata[]> {
-    return (await this.explain({ path, includeMetadata: "all" })).metadataAll ?? [];
-  }
-
-  public async findPath(path: string): Promise<ConfigValue | undefined> {
-    return (await this.extract({ path, missing: "undefined" })) as ConfigValue | undefined;
-  }
-
   public async explain<T = unknown>(
     options: string | ExplainOptions<T> = {},
   ): Promise<ExplainResult<T>> {
@@ -323,11 +311,7 @@ export class Figment implements Provider {
   }
 
   public async contains(path: string): Promise<boolean> {
-    return (await this.findPath(path)) !== undefined;
-  }
-
-  public async findValue(path: string): Promise<ConfigValue> {
-    return (await this.extract({ path, missing: "throw" })) as ConfigValue;
+    return (await this.extract({ path, missing: "undefined" })) !== undefined;
   }
 
   public focus(path: string): Figment {
