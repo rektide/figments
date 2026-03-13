@@ -3,6 +3,7 @@ export {
   type ExplainOptions,
   type ExplainResult,
   type ExtractOptions,
+  type FigmentState,
   type IncludeMetadataMode,
   type InterpretMode,
   type MissingPolicy,

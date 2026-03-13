@@ -70,6 +70,17 @@ export interface ExplainResult<T = unknown> {
   effectiveProfileOrder: string[];
 }
 
+export interface FigmentState {
+  activeProfiles: string[];
+  providerProfileSelectionMode: ProviderProfileSelectionMode;
+  pending: Promise<void>;
+  values: ProfileMap;
+  tags: ProfileTagMap;
+  metadataByTag: Map<number, Metadata>;
+  failure?: FigmentFailure;
+  nextTag: number;
+}
+
 export class Figment implements Provider {
   private activeProfiles: string[];
   private providerProfileSelectionMode: ProviderProfileSelectionMode;
@@ -109,6 +120,19 @@ export class Figment implements Provider {
   public async data(): Promise<ProfileMap> {
     await this.ready();
     return deepClone(this.values);
+  }
+
+  public state(): FigmentState {
+    return {
+      activeProfiles: this.activeProfiles,
+      providerProfileSelectionMode: this.providerProfileSelectionMode,
+      pending: this.pending,
+      values: this.values,
+      tags: this.tags,
+      metadataByTag: this.metadataByTag,
+      failure: this.failure,
+      nextTag: this.nextTag,
+    };
   }
 
   public profile(): string {
