@@ -10,6 +10,7 @@ export {
   type ProviderProfileSelectionMode,
   type ValueDecoder,
 } from "./figment.ts";
+export { FIGMENTS_STATE, type Stateful } from "./state.ts";
 export { type Provider } from "./provider.ts";
 export { DEFAULT_PROFILE, GLOBAL_PROFILE, profileFromEnv, profileFromEnvOr } from "./profile.ts";
 export {
