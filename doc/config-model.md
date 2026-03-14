@@ -1,10 +1,13 @@
-# Config Model: `state()`, `data()`, and `value()`
+# Config Model: Raw, Resolved, and Runtime State
 
-This document defines the intended model for three related APIs:
+This document defines the underlying config model and the API vocabulary we
+want to settle for it.
 
-- `state()` for full engine internals
-- `data()` for raw config buckets
-- `value()` for resolved config
+Model layers:
+
+- runtime internals (`state()`)
+- raw profile buckets (`data()` concept)
+- resolved merged config (`value()` concept)
 
 Primary implementation reference: [`/src/figment.ts`](/src/figment.ts).
 
@@ -21,7 +24,7 @@ These APIs separate those concerns clearly.
 
 ## Definitions
 
-### `state()`
+### Runtime State (`state()`)
 
 `state()` is the complete live runtime object. It is intended for advanced introspection and tooling.
 
@@ -38,9 +41,9 @@ Current fields (as of now):
 
 This is currently symbol-backed via [`/src/state.ts`](/src/state.ts) and exposed through `state()` in [`/src/figment.ts`](/src/figment.ts).
 
-### `data()`
+### Raw Profile Buckets (`data()` concept)
 
-`data()` is the raw config map by profile only (no provenance internals):
+Raw profile buckets are the config map by profile only (no provenance internals):
 
 ```ts
 {
@@ -50,37 +53,53 @@ This is currently symbol-backed via [`/src/state.ts`](/src/state.ts) and exposed
 }
 ```
 
-This is the "source buckets" view: what each profile currently contains before final resolution.
+This is the "source buckets" view: what each profile contains before final resolution.
 
-### `value()`
+### Resolved Value (`value()` concept)
 
-`value()` is the resolved merged config (the config consumers usually want).
+Resolved value is the merged config consumers usually want.
 
 Resolution order is:
 
 `default -> selected overlays (in order) -> global`
 
-This is currently represented by `extract(...)`; `value()` is the clearer semantic name for that resolved view.
+This is currently represented by `extract(...)`; `value()` is a naming direction
+for the same concept.
+
+## Current API status
+
+Current public APIs in [`/src/figment.ts`](/src/figment.ts):
+
+- `state()` exists and returns live runtime internals
+- `extract(options)` is the resolved-value API
+- `explain(options)` is path-level introspection/provenance
+
+`data()` and `value()` are currently conceptual names, not implemented methods.
+
+Equivalent expressions today:
+
+- `data()` concept -> `figment.state().values`
+- `value(options)` concept -> `figment.extract(options)`
 
 ## What each is for
 
-| API | Audience | Typical use |
+| Layer/API | Audience | Typical use |
 |---|---|---|
-| `value()` | app/runtime users | "Give me the config I should run with" |
-| `data()` | advanced users | "Show me what each profile bucket contains" |
+| `extract(...)` (`value()` concept) | app/runtime users | "Give me the config I should run with" |
+| `state().values` (`data()` concept) | advanced users | "Show each profile bucket" |
 | `state()` | tooling/debugging | "Show full engine/provenance internals" |
 
 ## Relationship between APIs
 
-- `state().values` and `data()` should represent the same raw profile content.
-- `value()` is synthesized from raw profile content + selected profile ordering.
-- `state()` includes extra internals that are intentionally not part of `data()`.
+- `state().values` is the raw profile-bucket content.
+- `extract(...)` (`value()` concept) is synthesized from raw profile content + selected profile ordering.
+- `state()` includes extra internals that are intentionally not part of raw bucket data.
 
 ## Mutation semantics
 
 This project intentionally allows mutable state exposure.
 
-- mutating `state().values` changes later `value()` / `extract()` results
+- mutating `state().values` changes later resolved output (`extract(...)`)
 - mutating `state().activeProfiles` changes overlay precedence
 - mutating `state().metadataByTag` / `state().tags` changes provenance behavior
 
@@ -88,18 +107,19 @@ Because provider loading is async, callers who need a settled view should wait o
 
 - `await state().pending`
 
-before treating `state`/`data`/`value` as stable.
+before treating runtime/raw/resolved views as stable.
 
 ## Suggested public contract going forward
 
 Recommended stable surface:
 
 - `state()` -> full internals
-- `data()` -> raw profile buckets only
-- `value(options?)` -> resolved merged config
+- `data()` (or equivalent) -> raw profile buckets only
+- `value(options?)` (or `extract(options?)`) -> resolved merged config
 - `explain(options?)` -> targeted path-level diagnostics/provenance
 
-If `extract()` remains, it should be treated as `value()` semantics (or alias to it).
+If `extract()` remains the canonical name, `value()` can be omitted entirely.
+If `value()` is added, it should alias `extract()` semantics.
 
 ## Example usage
 
@@ -115,7 +135,7 @@ await state.pending
 // raw buckets
 const rawDebug = state.values.debug
 
-// resolved view (current API name)
+// resolved view (current canonical API)
 const name = await figment.extract<string>({ path: "app.name" })
 ```
 
