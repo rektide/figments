@@ -19,7 +19,8 @@ TypeScript port of the rust `figment` library
 - APIs that load files are asynchronous.
 - Multi-profile extraction supports ordered overlays via `selectProfiles()` and `spliceProfiles()`.
 - Provider profile influence on selection is configurable via `providerProfileSelection()` (default: `"seedWhenEmpty"`).
-- Extraction is options-driven via `extract({ path, deser, interpret, missing, fallback, profiles })` and full resolved materialization via `build({ deser, interpret, profiles })`.
+- Path extraction is options-driven via `extract({ path, deser, interpret, missing, fallback, profiles })` (`path` is required).
+- Full resolved materialization is `build({ deser, interpret, profiles })`.
 - Provenance/introspection is available via `explain({ path, includeMetadata })`, where `includeMetadata` is `"none" | "winner" | "all"`.
 
 ## Example

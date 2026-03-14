@@ -60,14 +60,16 @@ export interface BuildOptions<T = ConfigDict> extends ResolveBaseOptions {
   deser?: ValueDecoder<T, ConfigDict>;
 }
 
-export interface ExtractOptions<T = ConfigDict> extends ResolveBaseOptions, MissingOptions<T> {
-  path?: string;
-  deser?: ValueDecoder<T, ConfigValue | ConfigDict>;
+export interface ExtractOptions<T = ConfigValue>
+  extends ResolveBaseOptions,
+    MissingOptions<ConfigValue> {
+  path: string;
+  deser?: ValueDecoder<T, ConfigValue>;
 }
 
-export interface ExplainOptions<T = unknown> extends ResolveBaseOptions, MissingOptions<T> {
+export interface ExplainOptions<T = unknown> extends ResolveBaseOptions, MissingOptions<ConfigValue> {
   path?: string;
-  deser?: ValueDecoder<T, ConfigValue | ConfigDict>;
+  deser?: ValueDecoder<T, unknown>;
   includeMetadata?: IncludeMetadataMode;
 }
 
@@ -185,8 +187,8 @@ export class Figment implements Stateful<FigmentState> {
     const resolved =
       options.deser && value !== undefined
         ? runDecoder(
-            value as unknown,
-            options.deser as ValueDecoder<T, unknown>,
+            value,
+            options.deser,
             describeScope(path, interpret),
             {
               path,
@@ -299,8 +301,12 @@ export class Figment implements Stateful<FigmentState> {
     return Object.keys(this.values);
   }
 
-  public async extract<T = ConfigDict>(options: ExtractOptions<T> = {}): Promise<T> {
+  public async extract<T = ConfigValue>(options: ExtractOptions<T>): Promise<T> {
     const path = normalizePath(options.path);
+    if (path === undefined) {
+      throw FigmentError.invalidValue("extract requires a non-empty path");
+    }
+
     const selectedProfiles = options.profiles
       ? normalizeSelectedProfiles(options.profiles)
       : this.activeProfiles;
@@ -308,19 +314,21 @@ export class Figment implements Stateful<FigmentState> {
     const context = this.errorProfileContext(selectedProfiles);
 
     const merged = await this.mergedState(selectedProfiles);
-    const rawValue = path ? findValue(merged.value, path) : merged.value;
-    const tree = path ? findTag(merged.tags, path) : merged.tags;
+    const rawValue = findValue(merged.value, path);
+    const tree = findTag(merged.tags, path);
     const tag = unwrapTag(tree);
     const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
 
     const value =
       rawValue === undefined
         ? resolveMissingValue(path, options, context, "throw")
-        : applyInterpret(rawValue, interpret);
+        : interpret === "lossy"
+          ? lossyValue(rawValue)
+          : rawValue;
 
     const resolved =
       options.deser && value !== undefined
-        ? runDecoder(value as unknown, options.deser as ValueDecoder<T, unknown>, describeScope(path, interpret), {
+        ? runDecoder(value, options.deser, describeScope(path, interpret), {
             path,
             context: {
               tag,
@@ -343,12 +351,12 @@ export class Figment implements Stateful<FigmentState> {
     const merged = await this.mergedState(selectedProfiles);
     const tag = unwrapTag(merged.tags);
     const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
-    const value = applyInterpret(merged.value, interpret);
+    const value = interpret === "lossy" ? lossyConfig(merged.value) : merged.value;
 
     const resolved =
       options.deser === undefined
         ? value
-        : runDecoder(value as unknown, options.deser as ValueDecoder<T, unknown>, describeScope(undefined, interpret), {
+        : runDecoder(value, options.deser, describeScope(undefined, interpret), {
             context: {
               tag,
               ...context,

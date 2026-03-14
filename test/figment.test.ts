@@ -301,7 +301,7 @@ describe("provider behavior", () => {
     process.env.TEST_FIGMENT_ARRAY_1 = "5";
     try {
       const figment = Figment.new().merge(Env.prefixed("TEST_FIGMENT_").split("_"));
-      const config = await figment.extract<{
+      const config = await figment.build<{
         app: { name: string; debug: boolean };
         array: number[];
       }>({ interpret: "lossy" });
@@ -324,7 +324,7 @@ describe("provider behavior", () => {
 
     try {
       const figment = Figment.new().merge(Toml.file(path));
-      const config = await figment.extract<{ name: string; count: number }>();
+      const config = await figment.build<{ name: string; count: number }>();
       expect(config).toEqual({ name: "demo", count: 12 });
     } finally {
       await rm(temp, { recursive: true, force: true });
@@ -344,8 +344,8 @@ describe("provider behavior", () => {
       const optional = Toml.file(missing);
       const required = optional.required(true);
 
-      expect(await Figment.new().merge(optional).extract()).toEqual({});
-      await expect(Figment.new().merge(required).extract()).rejects.toThrow("required file");
+      expect(await Figment.new().merge(optional).build()).toEqual({});
+      await expect(Figment.new().merge(required).build()).rejects.toThrow("required file");
     } finally {
       await rm(temp, { recursive: true, force: true });
     }
@@ -366,7 +366,7 @@ describe("provider behavior", () => {
         }),
       );
 
-      const config = await figment.extract<{ list: number[]; count: number }>();
+      const config = await figment.build<{ list: number[]; count: number }>();
       expect(config.list).toEqual([1, 2, 3]);
       expect(config.count).toBe(7);
     } finally {

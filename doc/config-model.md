@@ -63,8 +63,8 @@ Resolution order is:
 
 `default -> selected overlays (in order) -> global`
 
-This is represented by `build(...)` for full materialization and `extract(...)`
-for flexible path-level resolution.
+This is represented by `build(...)` for full materialization.
+`extract(...)` is path-oriented flexible resolution.
 
 ## Current API status
 
@@ -72,7 +72,7 @@ Current public APIs in [`/src/figment.ts`](/src/figment.ts):
 
 - `state()` exists and returns live runtime internals
 - `build(options)` is the full resolved-value materialization API
-- `extract(options)` is flexible resolution (full or path)
+- `extract(options)` is flexible path resolution (`path` required)
 - `explain(options)` is path-level introspection/provenance
 
 `data()` remains a concept, not a method.
@@ -87,7 +87,7 @@ Equivalent expressions today:
 | Layer/API | Audience | Typical use |
 |---|---|---|
 | `build(...)` | app/runtime users | "Give me the full config I should run with" |
-| `extract(...)` | app/runtime users | "Resolve one path or custom extraction behavior" |
+| `extract(...)` | app/runtime users | "Resolve one path with missing/deser controls" |
 | `state().values` (`data()` concept) | advanced users | "Show each profile bucket" |
 | `state()` | tooling/debugging | "Show full engine/provenance internals" |
 
@@ -95,7 +95,7 @@ Equivalent expressions today:
 
 - `state().values` is the raw profile-bucket content.
 - `build(...)` is synthesized from raw profile content + selected profile ordering.
-- `extract(...)` is the same synthesis path with optional path/missing behavior.
+- `extract(...)` is path-oriented synthesis with missing/fallback/deser behavior.
 - `state()` includes extra internals that are intentionally not part of raw bucket data.
 
 ## Mutation semantics
@@ -119,7 +119,7 @@ Recommended stable surface:
 - `state()` -> full internals
 - `data()` (or equivalent) -> raw profile buckets only
 - `build(options?)` -> resolved merged config materialization
-- `extract(options?)` -> path/fallback/deser-oriented resolution
+- `extract(options)` -> path/fallback/deser-oriented resolution (`path` required)
 - `explain(options?)` -> targeted path-level diagnostics/provenance
 
 If a future `value()` method is introduced, it should alias `build()` semantics,
