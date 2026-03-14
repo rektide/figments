@@ -6,7 +6,7 @@ TypeScript port of the rust `figment` library
 
 - `Figment` combiner with `join`, `adjoin`, `zipjoin`, `merge`, `admerge`, `zipmerge`
 - profile selection with ordered overlays and `default`/`global` semantics
-- path lookup (`extractInner`, `findValue`, `focus`, `contains`) including array indices
+- path lookup via `extract({ path })` and `explain({ path })`, including array indices
 - providers:
   - `Serialized`
   - `Env`
@@ -19,7 +19,7 @@ TypeScript port of the rust `figment` library
 - APIs that load files are asynchronous.
 - Multi-profile extraction supports ordered overlays via `selectProfiles()` and `spliceProfiles()`.
 - Provider profile influence on selection is configurable via `providerProfileSelection()` (default: `"seedWhenEmpty"`).
-- Extraction is options-driven via `extract({ path, deser, interpret, missing, fallback, profiles })`.
+- Extraction is options-driven via `extract({ path, deser, interpret, missing, fallback, profiles })` and full resolved materialization via `build({ deser, interpret, profiles })`.
 - Provenance/introspection is available via `explain({ path, includeMetadata })`, where `includeMetadata` is `"none" | "winner" | "all"`.
 
 ## Example
@@ -32,7 +32,7 @@ const figment = Figment.new()
 	.merge(providers.Env.prefixed("APP_").split("_"))
 	.join(providers.Json.file("Config.json"))
 
-const config = await figment.extract<{ app: { name: string } }>()
+const config = await figment.build<{ app: { name: string } }>()
 ```
 
 ## Multi-Profile Precedence
@@ -53,7 +53,7 @@ const selected = base
   .selectProfiles(["region-eu", "tenant-acme"])
   .spliceProfiles(1, 0, "incident-override")
 
-const level = await selected.extractInner<string>("level")
+const level = await selected.extract<string>({ path: "level" })
 // effective order: default -> region-eu -> incident-override -> tenant-acme -> global
 ```
 

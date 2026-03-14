@@ -1,5 +1,6 @@
 export {
   Figment,
+  type BuildOptions,
   type ExplainOptions,
   type ExplainResult,
   type ExtractOptions,

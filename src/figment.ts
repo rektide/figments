@@ -55,6 +55,8 @@ export interface ExtractOptions<T = unknown> {
   profiles?: string[];
 }
 
+export type BuildOptions<T = ConfigDict> = Omit<ExtractOptions<T>, "path">;
+
 export interface ExplainOptions<T = unknown> extends ExtractOptions<T> {
   includeMetadata?: IncludeMetadataMode;
 }
@@ -318,6 +320,10 @@ export class Figment implements Stateful<FigmentState> {
         : value;
 
     return cloneResolvable(resolved) as T;
+  }
+
+  public async build<T = ConfigDict>(options: BuildOptions<T> = {}): Promise<T> {
+    return this.extract(options as ExtractOptions<T>);
   }
 
   public async contains(path: string): Promise<boolean> {

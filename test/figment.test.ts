@@ -92,6 +92,23 @@ async function allMetadataNames(figment: Figment, path: string): Promise<string[
 }
 
 describe("figment merge behavior", () => {
+  it("build materializes the full resolved config object", async () => {
+    const figment = Figment.new()
+      .merge(Serialized.defaults({ app: { host: "base", enabled: "yes" } }))
+      .merge(Serialized.default("app.host", "incoming"));
+
+    const built = await figment.build<{ app: { host: string; enabled: boolean } }>({
+      interpret: "lossy",
+      deser: {
+        parse(value) {
+          return value as { app: { host: string; enabled: boolean } };
+        },
+      },
+    });
+
+    expect(built).toEqual({ app: { host: "incoming", enabled: true } });
+  });
+
   it("merge prefers incoming values while join keeps existing", async () => {
     const merged = Figment.new()
       .join(Serialized.default("name", "base"))
