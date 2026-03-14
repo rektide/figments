@@ -398,7 +398,7 @@ describe("provider behavior", () => {
 describe("decoder behavior", () => {
   it("extract supports parse-style deserializers", async () => {
     const figment = Figment.new().merge(Serialized.defaults({ port: "8080" }));
-    const config = await figment.extract({
+    const config = await figment.build({
       deser: {
       parse(value) {
         const raw = value.port;
@@ -441,7 +441,7 @@ describe("decoder behavior", () => {
     const figment = Figment.new().merge(Serialized.defaults({ port: "not-a-number" }));
 
     await expect(
-      figment.extract({
+      figment.build({
         deser: {
           parse(value) {
             const raw = value.port;

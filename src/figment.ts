@@ -46,18 +46,28 @@ export type MissingPolicy = "throw" | "undefined" | "null" | "default";
 
 export type IncludeMetadataMode = "none" | "winner" | "all";
 
-export interface ExtractOptions<T = unknown> {
-  path?: string;
-  deser?: ValueDecoder<T, any>;
+interface ResolveBaseOptions {
   interpret?: InterpretMode;
-  missing?: MissingPolicy;
-  fallback?: T | (() => T);
   profiles?: string[];
 }
 
-export type BuildOptions<T = ConfigDict> = Omit<ExtractOptions<T>, "path">;
+interface MissingOptions<T = unknown> {
+  missing?: MissingPolicy;
+  fallback?: T | (() => T);
+}
 
-export interface ExplainOptions<T = unknown> extends ExtractOptions<T> {
+export interface BuildOptions<T = ConfigDict> extends ResolveBaseOptions {
+  deser?: ValueDecoder<T, ConfigDict>;
+}
+
+export interface ExtractOptions<T = ConfigDict> extends ResolveBaseOptions, MissingOptions<T> {
+  path?: string;
+  deser?: ValueDecoder<T, ConfigValue | ConfigDict>;
+}
+
+export interface ExplainOptions<T = unknown> extends ResolveBaseOptions, MissingOptions<T> {
+  path?: string;
+  deser?: ValueDecoder<T, ConfigValue | ConfigDict>;
   includeMetadata?: IncludeMetadataMode;
 }
 
@@ -151,17 +161,13 @@ export class Figment implements Stateful<FigmentState> {
     return [...this.activeProfiles];
   }
 
-  public async explain<T = unknown>(
-    options: string | ExplainOptions<T> = {},
-  ): Promise<ExplainResult<T>> {
-    const normalizedOptions =
-      typeof options === "string" ? ({ path: options } as ExplainOptions<T>) : options;
-    const path = normalizePath(normalizedOptions.path);
-    const selectedProfiles = normalizedOptions.profiles
-      ? normalizeSelectedProfiles(normalizedOptions.profiles)
+  public async explain<T = unknown>(options: ExplainOptions<T> = {}): Promise<ExplainResult<T>> {
+    const path = normalizePath(options.path);
+    const selectedProfiles = options.profiles
+      ? normalizeSelectedProfiles(options.profiles)
       : this.activeProfiles;
-    const interpret = normalizedOptions.interpret ?? "default";
-    const includeMetadata = normalizedOptions.includeMetadata ?? "winner";
+    const interpret = options.interpret ?? "default";
+    const includeMetadata = options.includeMetadata ?? "winner";
     const context = this.errorProfileContext(selectedProfiles);
 
     const merged = await this.mergedState(selectedProfiles);
@@ -173,19 +179,24 @@ export class Figment implements Stateful<FigmentState> {
 
     const value =
       rawValue === undefined
-        ? resolveMissingValue(path, normalizedOptions, context, "undefined")
+        ? resolveMissingValue(path, options, context, "undefined")
         : applyInterpret(rawValue, interpret);
 
     const resolved =
-      normalizedOptions.deser && value !== undefined
-        ? runDecoder(value as unknown, normalizedOptions.deser, describeScope(path, interpret), {
-            path,
-            context: {
-              tag,
-              ...context,
-              metadata: winnerMetadata,
+      options.deser && value !== undefined
+        ? runDecoder(
+            value as unknown,
+            options.deser as ValueDecoder<T, unknown>,
+            describeScope(path, interpret),
+            {
+              path,
+              context: {
+                tag,
+                ...context,
+                metadata: winnerMetadata,
+              },
             },
-          })
+          )
         : value;
 
     const metadata = includeMetadata === "none" ? undefined : winnerMetadata;
@@ -309,7 +320,7 @@ export class Figment implements Stateful<FigmentState> {
 
     const resolved =
       options.deser && value !== undefined
-        ? runDecoder(value as unknown, options.deser, describeScope(path, interpret), {
+        ? runDecoder(value as unknown, options.deser as ValueDecoder<T, unknown>, describeScope(path, interpret), {
             path,
             context: {
               tag,
@@ -323,7 +334,29 @@ export class Figment implements Stateful<FigmentState> {
   }
 
   public async build<T = ConfigDict>(options: BuildOptions<T> = {}): Promise<T> {
-    return this.extract(options as ExtractOptions<T>);
+    const selectedProfiles = options.profiles
+      ? normalizeSelectedProfiles(options.profiles)
+      : this.activeProfiles;
+    const interpret = options.interpret ?? "default";
+    const context = this.errorProfileContext(selectedProfiles);
+
+    const merged = await this.mergedState(selectedProfiles);
+    const tag = unwrapTag(merged.tags);
+    const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+    const value = applyInterpret(merged.value, interpret);
+
+    const resolved =
+      options.deser === undefined
+        ? value
+        : runDecoder(value as unknown, options.deser as ValueDecoder<T, unknown>, describeScope(undefined, interpret), {
+            context: {
+              tag,
+              ...context,
+              metadata,
+            },
+          });
+
+    return cloneResolvable(resolved) as T;
   }
 
   public async contains(path: string): Promise<boolean> {
@@ -617,7 +650,7 @@ function applyInterpret(value: ConfigValue | ConfigDict, interpret: InterpretMod
 
 function resolveMissingValue<T>(
   path: string | undefined,
-  options: Pick<ExtractOptions<T>, "missing" | "fallback">,
+  options: MissingOptions<T>,
   context: {
     profile: string;
     selectedProfiles: string[];
