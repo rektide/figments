@@ -7,7 +7,7 @@ Model layers:
 
 - runtime internals (`state()`)
 - raw profile buckets (`data()` concept)
-- resolved merged config (`value()` concept)
+- resolved merged config (`build()`)
 
 Primary implementation reference: [`/src/figment.ts`](/src/figment.ts).
 
@@ -55,7 +55,7 @@ Raw profile buckets are the config map by profile only (no provenance internals)
 
 This is the "source buckets" view: what each profile contains before final resolution.
 
-### Resolved Value (`value()` concept)
+### Resolved Value (`build()`)
 
 Resolved value is the merged config consumers usually want.
 
@@ -63,43 +63,46 @@ Resolution order is:
 
 `default -> selected overlays (in order) -> global`
 
-This is currently represented by `extract(...)`; `value()` is a naming direction
-for the same concept.
+This is represented by `build(...)` for full materialization and `extract(...)`
+for flexible path-level resolution.
 
 ## Current API status
 
 Current public APIs in [`/src/figment.ts`](/src/figment.ts):
 
 - `state()` exists and returns live runtime internals
-- `extract(options)` is the resolved-value API
+- `build(options)` is the full resolved-value materialization API
+- `extract(options)` is flexible resolution (full or path)
 - `explain(options)` is path-level introspection/provenance
 
-`data()` and `value()` are currently conceptual names, not implemented methods.
+`data()` remains a concept, not a method.
 
 Equivalent expressions today:
 
 - `data()` concept -> `figment.state().values`
-- `value(options)` concept -> `figment.extract(options)`
+- resolved full config -> `figment.build(options)`
 
 ## What each is for
 
 | Layer/API | Audience | Typical use |
 |---|---|---|
-| `extract(...)` (`value()` concept) | app/runtime users | "Give me the config I should run with" |
+| `build(...)` | app/runtime users | "Give me the full config I should run with" |
+| `extract(...)` | app/runtime users | "Resolve one path or custom extraction behavior" |
 | `state().values` (`data()` concept) | advanced users | "Show each profile bucket" |
 | `state()` | tooling/debugging | "Show full engine/provenance internals" |
 
 ## Relationship between APIs
 
 - `state().values` is the raw profile-bucket content.
-- `extract(...)` (`value()` concept) is synthesized from raw profile content + selected profile ordering.
+- `build(...)` is synthesized from raw profile content + selected profile ordering.
+- `extract(...)` is the same synthesis path with optional path/missing behavior.
 - `state()` includes extra internals that are intentionally not part of raw bucket data.
 
 ## Mutation semantics
 
 This project intentionally allows mutable state exposure.
 
-- mutating `state().values` changes later resolved output (`extract(...)`)
+- mutating `state().values` changes later resolved output (`build(...)` and `extract(...)`)
 - mutating `state().activeProfiles` changes overlay precedence
 - mutating `state().metadataByTag` / `state().tags` changes provenance behavior
 
@@ -115,11 +118,12 @@ Recommended stable surface:
 
 - `state()` -> full internals
 - `data()` (or equivalent) -> raw profile buckets only
-- `value(options?)` (or `extract(options?)`) -> resolved merged config
+- `build(options?)` -> resolved merged config materialization
+- `extract(options?)` -> path/fallback/deser-oriented resolution
 - `explain(options?)` -> targeted path-level diagnostics/provenance
 
-If `extract()` remains the canonical name, `value()` can be omitted entirely.
-If `value()` is added, it should alias `extract()` semantics.
+If a future `value()` method is introduced, it should alias `build()` semantics,
+not replace `extract()`.
 
 ## Example usage
 
@@ -135,7 +139,10 @@ await state.pending
 // raw buckets
 const rawDebug = state.values.debug
 
-// resolved view (current canonical API)
+// resolved full view
+const full = await figment.build<{ app: { name: string } }>()
+
+// resolved path-level access
 const name = await figment.extract<string>({ path: "app.name" })
 ```
 
