@@ -190,6 +190,23 @@ export class Figment implements Stateful<FigmentState> {
     return this.metadataByTag.get(tag.metadataId);
   }
 
+  /**
+   * Extracts a value and returns winner-tag metadata alongside the value.
+   *
+   * This is convenience sugar over `explain({ includeMetadata: "winner" })`
+   * for callers that need the extracted value plus provenance in one call.
+   */
+  public async extractTagged<T = ConfigValue>(
+    options: ExtractOptions<T>,
+  ): Promise<ExplainResult<T>> {
+    const { deser, ...rest } = options;
+    return this.explain<T>({
+      ...rest,
+      deser: deser as ValueDecoder<T, unknown> | undefined,
+      includeMetadata: "winner",
+    });
+  }
+
   public async explain<T = unknown>(options: ExplainOptions<T> = {}): Promise<ExplainResult<T>> {
     const path = normalizePath(options.path);
     const selectedProfiles = options.profiles
