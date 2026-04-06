@@ -303,3 +303,7 @@ time="2026-04-05T21:12:48-04:00" level=info msg=NewConnection DisableClientMulti
 time="2026-04-05T21:12:48-04:00" level=info msg=NewConnection DisableClientMultiStatements=false connectionID=37
 time="2026-04-05T21:12:48-04:00" level=info msg=ConnectionClosed connectionID=36
 time="2026-04-05T21:12:48-04:00" level=info msg=ConnectionClosed connectionID=37
+time="2026-04-05T21:42:46-04:00" level=info msg=NewConnection DisableClientMultiStatements=false connectionID=38
+time="2026-04-05T21:42:46-04:00" level=info msg=ConnectionClosed connectionID=38
+time="2026-04-05T21:42:46-04:00" level=info msg="Server closing listener. No longer accepting connections."
+time="2026-04-05T21:42:46-04:00" level=info msg="stats stopped: context canceled"
