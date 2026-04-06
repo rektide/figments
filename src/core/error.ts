@@ -1,5 +1,5 @@
 import type { Metadata } from "./metadata.ts";
-import { formatMetadataSource } from "./metadata.ts";
+import { formatMetadataDisplay } from "./metadata.ts";
 import type { Tag } from "./tag.ts";
 
 export type FigmentErrorKind =
@@ -136,12 +136,8 @@ export class FigmentError extends Error {
         ? this.metadata.interpolate(profile, this.path)
         : undefined;
     const providerKeySuffix = interpolated ? ` (provider key '${interpolated}')` : "";
-    const source = formatMetadataSource(this.metadata?.source);
-    const sourceSuffix = this.metadata?.source
-      ? ` in ${source} ${this.metadata.name}`
-      : this.metadata
-        ? ` in ${this.metadata.name}`
-        : "";
+    const display = formatMetadataDisplay(this.metadata);
+    const sourceSuffix = display ? ` in ${display}` : "";
     const mismatchSuffix = this.expected
       ? ` (expected ${this.expected}, found ${this.actual ?? "unknown"})`
       : "";

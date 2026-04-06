@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   Metadata,
   MetadataBuilder,
+  formatMetadataDisplay,
   formatMetadataSource,
   metadataFrom,
   metadataFromCode,
@@ -13,6 +14,7 @@ import {
   metadataFromInline,
   metadataNamed,
 } from "../../src/core/metadata.ts";
+import { sourceDisplayFixtures } from "../fixtures/source-display.ts";
 
 describe("metadata source typing", () => {
   it("creates typed file/env/inline/custom/code sources", () => {
@@ -59,6 +61,13 @@ describe("metadata source typing", () => {
     expect(formatMetadataSource(metadataFrom("Custom", "named").source)).toBe("named");
   });
 
+  it("formats fixture-defined source cases consistently", () => {
+    const fixtures = sourceDisplayFixtures(process.cwd());
+    for (const fixture of fixtures) {
+      expect(formatMetadataSource(fixture.metadata.source)).toBe(fixture.concise);
+    }
+  });
+
   it("formats absolute file paths relative to cwd when shorter", () => {
     const absolute = resolve(process.cwd(), "Config.toml");
     expect(formatMetadataSource(metadataFromFile("TOML", absolute).source)).toBe(
@@ -66,8 +75,38 @@ describe("metadata source typing", () => {
     );
   });
 
+  it("supports verbose mode for source file formatting", () => {
+    const relativePath = "Config.toml";
+    const absolutePath = resolve(process.cwd(), "Config.toml");
+
+    expect(
+      formatMetadataSource(metadataFromFile("TOML", relativePath).source, {
+        mode: "verbose",
+      }),
+    ).toBe(`file ${absolutePath}`);
+    expect(
+      formatMetadataSource(metadataFromFile("TOML", absolutePath).source, {
+        mode: "verbose",
+      }),
+    ).toBe(`file ${absolutePath}`);
+  });
+
+  it("keeps absolute paths outside cwd in concise mode", () => {
+    const external = resolve(process.cwd(), "..", "outside", "Config.toml");
+    expect(formatMetadataSource(metadataFromFile("TOML", external).source)).toBe(
+      `file ${external}`,
+    );
+  });
+
   it("returns empty string when source is missing", () => {
     expect(formatMetadataSource(undefined)).toBe("");
+  });
+
+  it("formats full metadata display as name plus source", () => {
+    const metadata = metadataFromFile("TOML file", "Config.toml");
+    expect(formatMetadataDisplay(metadata)).toBe("TOML file (file Config.toml)");
+    expect(formatMetadataDisplay(metadataNamed("NamedOnly"))).toBe("NamedOnly");
+    expect(formatMetadataDisplay(undefined)).toBe("");
   });
 });
 

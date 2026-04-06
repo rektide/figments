@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FigmentAggregateError, FigmentError } from "../../src/core/error.ts";
+import { metadataFromFile } from "../../src/core/metadata.ts";
 
 describe("FigmentError construction", () => {
   it("stores kind, message, path, profile, tag, and metadata", () => {
@@ -52,6 +53,19 @@ describe("FigmentError.toString", () => {
     const text = String(error);
     expect(text).toContain("a.b");
     expect(text).toContain("default -> debug");
+  });
+
+  it("formats provider metadata as name and source", () => {
+    const error = FigmentError.invalidType("number", "oops")
+      .withPath("app.port")
+      .withContext({
+        profile: "default",
+        metadata: metadataFromFile("TOML file", "Config.toml"),
+      });
+
+    const text = String(error);
+    expect(text).toContain("in TOML file (file Config.toml)");
+    expect(text).toContain("provider key 'default.app.port'");
   });
 });
 

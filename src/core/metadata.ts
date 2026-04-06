@@ -1,4 +1,4 @@
-import { isAbsolute, normalize, relative, sep } from "node:path";
+import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
 
 export type MetadataSource =
   | { kind: "file"; path: string }
@@ -21,6 +21,13 @@ export interface Metadata {
   provideLocation?: string;
   interpolate: (profile: string, keys: string[]) => string;
 }
+
+export type MetadataSourceDisplayMode = "concise" | "verbose";
+
+export type MetadataFormatOptions = {
+  mode?: MetadataSourceDisplayMode;
+  cwd?: string;
+};
 
 export type MetadataInterpolater = (profile: string, keys: string[]) => string;
 
@@ -107,14 +114,20 @@ export function metadataFromCode(name: string, location: string): Metadata {
   return Metadata.named(name).source({ kind: SourceKind.Code, location }).build();
 }
 
-export function formatMetadataSource(source: MetadataSource | undefined): string {
+export function formatMetadataSource(
+  source: MetadataSource | undefined,
+  options: MetadataFormatOptions = {},
+): string {
   if (!source) {
     return "";
   }
 
+  const mode = options.mode ?? "concise";
+  const cwd = options.cwd ?? process.cwd();
+
   switch (source.kind) {
     case SourceKind.File:
-      return `file ${displayFilePath(source.path)}`;
+      return `file ${displayFilePath(source.path, mode, cwd)}`;
     case SourceKind.Env:
       return `environment ${source.selector}`;
     case SourceKind.Inline:
@@ -124,6 +137,22 @@ export function formatMetadataSource(source: MetadataSource | undefined): string
     case SourceKind.Custom:
       return source.value;
   }
+}
+
+export function formatMetadataDisplay(
+  metadata: Metadata | undefined,
+  options: MetadataFormatOptions = {},
+): string {
+  if (!metadata) {
+    return "";
+  }
+
+  const source = formatMetadataSource(metadata.source, options);
+  if (!source) {
+    return metadata.name;
+  }
+
+  return `${metadata.name} (${source})`;
 }
 
 function normalizeMetadataSource(source: MetadataSource | string): MetadataSource {
@@ -141,13 +170,21 @@ function defaultInterpolater(profile: string, keys: string[]): string {
   return `${profile}.${keys.join(".")}`;
 }
 
-function displayFilePath(path: string): string {
+function displayFilePath(path: string, mode: MetadataSourceDisplayMode, cwd: string): string {
+  if (mode === "verbose") {
+    return isAbsolute(path) ? path : resolve(cwd, path);
+  }
+
   if (!isAbsolute(path)) {
     return path;
   }
 
-  const relPath = relative(process.cwd(), path);
+  const relPath = relative(cwd, path);
   if (!relPath || relPath === ".") {
+    return path;
+  }
+
+  if (!isReadableRelativePath(relPath)) {
     return path;
   }
 
@@ -156,4 +193,8 @@ function displayFilePath(path: string): string {
 
 function segmentCount(path: string): number {
   return normalize(path).split(sep).filter(Boolean).length;
+}
+
+function isReadableRelativePath(path: string): boolean {
+  return !path.split(sep).some((part) => part === "..");
 }
