@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { Figment } from "../src/figment.ts";
-import { isCustomProfile, profileFromEnv, profileFromEnvOr } from "../src/profile.ts";
+import {
+  isCustomProfile,
+  normalizeProfile,
+  profileFromEnv,
+  profileFromEnvOr,
+} from "../src/profile.ts";
 import { Serialized } from "../src/providers/serialized.ts";
 import { ProfileNamedProvider } from "./helpers.ts";
 
@@ -190,5 +195,16 @@ describe("isCustomProfile", () => {
   it("detects non-built-in profiles as custom", () => {
     expect(isCustomProfile("debug")).toBe(true);
     expect(isCustomProfile("release")).toBe(true);
+  });
+});
+
+describe("normalizeProfile", () => {
+  it("trims and lowercases profile names", () => {
+    expect(normalizeProfile("  DeBuG  ")).toBe("debug");
+    expect(normalizeProfile("RELEASE")).toBe("release");
+  });
+
+  it("preserves punctuation while normalizing case", () => {
+    expect(normalizeProfile(" Feature-X ")).toBe("feature-x");
   });
 });

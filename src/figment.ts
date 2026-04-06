@@ -31,6 +31,7 @@ import {
   isTagDictNode,
 } from "./core/tag.ts";
 import { FIGMENTS_STATE, type Stateful } from "./state.ts";
+import { Tuple, isTupleEntry, type TupleEntry } from "./providers/tuple.ts";
 
 export type ValueDecoder<T, V = ConfigValue> =
   | ((value: V) => T)
@@ -96,7 +97,7 @@ export interface FigmentState {
   nextTag: number;
 }
 
-type Providable = Provider | Figment;
+type Providable = Provider | Figment | TupleEntry;
 
 export class Figment implements Stateful<FigmentState> {
   private activeProfiles: string[];
@@ -399,8 +400,9 @@ export class Figment implements Stateful<FigmentState> {
   }
 
   private provide(provider: Providable, order: CoalesceOrder, provideLocation?: string): Figment {
+    const resolvedProvider = normalizeProvidable(provider);
     const next = this.fork();
-    const providerProfile = provider.selectedProfile?.();
+    const providerProfile = resolvedProvider.selectedProfile?.();
     const normalizedProviderProfile = providerProfile
       ? normalizeProfile(providerProfile)
       : undefined;
@@ -435,25 +437,25 @@ export class Figment implements Stateful<FigmentState> {
         let incoming: ProfileMap;
         let incomingTags: ProfileTagMap;
 
-        if (provider instanceof Figment) {
-          await provider.ready();
-          const remap = next.importMetadataMap(provider.metadataByTag);
-          incoming = normalizeProfiles(provider.values);
-          incomingTags = remapProfileTagMap(cloneProfileTagMap(provider.tags), remap);
+        if (resolvedProvider instanceof Figment) {
+          await resolvedProvider.ready();
+          const remap = next.importMetadataMap(resolvedProvider.metadataByTag);
+          incoming = normalizeProfiles(resolvedProvider.values);
+          incomingTags = remapProfileTagMap(cloneProfileTagMap(resolvedProvider.tags), remap);
         } else {
-          const importedMetadataMap = provider.metadataMap?.();
-          const importedTagMap = provider.tagMap?.();
+          const importedMetadataMap = resolvedProvider.metadataMap?.();
+          const importedTagMap = resolvedProvider.tagMap?.();
 
           if (importedMetadataMap && importedTagMap) {
             const remap = next.importMetadataMap(importedMetadataMap);
-            incoming = normalizeProfiles(await provider.data());
+            incoming = normalizeProfiles(await resolvedProvider.data());
             incomingTags = remapProfileTagMap(cloneProfileTagMap(importedTagMap), remap);
           } else {
             contextTag = next.allocateTag(next.primaryProfile());
-            contextMetadata = provider.metadata();
+            contextMetadata = resolvedProvider.metadata();
             contextMetadata.provideLocation = provideLocation;
             next.metadataByTag.set(contextTag.metadataId, contextMetadata);
-            incoming = normalizeProfiles(await provider.data());
+            incoming = normalizeProfiles(await resolvedProvider.data());
             incomingTags = buildTagProfileMap(incoming, contextTag);
           }
         }
@@ -590,6 +592,18 @@ function normalizeProfiles(map: ProfileMap): ProfileMap {
   }
 
   return out;
+}
+
+function normalizeProvidable(provider: Providable): Provider | Figment {
+  if (provider instanceof Figment) {
+    return provider;
+  }
+
+  if (isTupleEntry(provider)) {
+    return Tuple.from(provider);
+  }
+
+  return provider;
 }
 
 function normalizeSelectedProfiles(profiles: string[]): string[] {
