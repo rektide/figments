@@ -16,14 +16,19 @@ export interface Format {
   parse(source: string): unknown;
 }
 
-type DataSource =
-  | {
-      readonly type: "file";
-      readonly path: string;
-      readonly required: boolean;
-      readonly search: boolean;
-    }
-  | { readonly type: "string"; readonly source: string };
+type FileDataSource = {
+  readonly type: "file";
+  readonly path: string;
+  readonly required: boolean;
+  readonly search: boolean;
+};
+
+type StringDataSource = {
+  readonly type: "string";
+  readonly source: string;
+};
+
+type DataSource = FileDataSource | StringDataSource;
 
 export class Data<F extends Format> implements Provider {
   private readonly source: DataSource;
@@ -32,26 +37,26 @@ export class Data<F extends Format> implements Provider {
   public constructor(
     private readonly format: F,
     source: DataSource,
-    profileName: string | undefined = DEFAULT_PROFILE,
+    profileName: string | undefined,
   ) {
     this.source = source;
     this.profileName = profileName;
   }
 
   public static file<F extends Format>(format: F, path: string): Data<F> {
-    return new Data(format, { type: "file", path, required: false, search: true });
+    return new Data(format, createFileSource(path), DEFAULT_PROFILE);
   }
 
   public static string<F extends Format>(format: F, source: string): Data<F> {
-    return new Data(format, { type: "string", source });
+    return new Data(format, createStringSource(source), DEFAULT_PROFILE);
   }
 
   public nested(): Data<F> {
-    return new Data(this.format, this.source, undefined);
+    return this.withProfile(undefined);
   }
 
   public required(required: boolean): Data<F> {
-    if (this.source.type !== "file") {
+    if (!isFileDataSource(this.source)) {
       return this;
     }
 
@@ -59,11 +64,11 @@ export class Data<F extends Format> implements Provider {
       return this;
     }
 
-    return new Data(this.format, { ...this.source, required }, this.profileName);
+    return this.withSource({ ...this.source, required });
   }
 
   public search(search: boolean): Data<F> {
-    if (this.source.type !== "file") {
+    if (!isFileDataSource(this.source)) {
       return this;
     }
 
@@ -71,7 +76,7 @@ export class Data<F extends Format> implements Provider {
       return this;
     }
 
-    return new Data(this.format, { ...this.source, search }, this.profileName);
+    return this.withSource({ ...this.source, search });
   }
 
   public profile(profile: string): Data<F> {
@@ -80,7 +85,7 @@ export class Data<F extends Format> implements Provider {
       return this;
     }
 
-    return new Data(this.format, this.source, normalized);
+    return this.withProfile(normalized);
   }
 
   public selectedProfile(): string | undefined {
@@ -88,61 +93,20 @@ export class Data<F extends Format> implements Provider {
   }
 
   public metadata(): Metadata {
-    if (this.source.type === "string") {
-      return metadataFromInline(
-        `${this.format.name} source string`,
-        `${this.format.name} inline string`,
-      );
-    }
-
-    return metadataFromFile(`${this.format.name} file`, this.source.path);
+    return metadataForSource(this.format.name, this.source);
   }
 
   public async data(): Promise<ProfileMap> {
-    const value = await this.load();
-
-    if (this.profileName) {
-      if (!isConfigDict(value)) {
-        throw new Error(
-          `${this.format.name} source must decode to a dictionary when nesting is disabled`,
-        );
-      }
-
-      return {
-        [this.profileName]: value,
-      };
-    }
-
-    if (!isConfigDict(value)) {
-      throw new Error(`${this.format.name} nested source must decode to a profile dictionary`);
-    }
-
-    const output: ProfileMap = {};
-    for (const [profile, profileValue] of Object.entries(value)) {
-      if (isConfigDict(profileValue)) {
-        output[normalizeProfile(profile)] = profileValue;
-      }
-    }
-
-    return output;
+    const value = await loadDataSource(this.format, this.source);
+    return asProfileMap(value, this.profileName, this.format.name);
   }
 
-  private async load(): Promise<ConfigValue> {
-    if (this.source.type === "string") {
-      return toConfigValue(this.format.parse(this.source.source));
-    }
+  private withSource(source: DataSource): Data<F> {
+    return new Data(this.format, source, this.profileName);
+  }
 
-    const path = await resolvePath(this.source.path, this.source.search);
-    if (!path) {
-      if (!this.source.required) {
-        return {};
-      }
-
-      throw new Error(`required file '${this.source.path}' not found`);
-    }
-
-    const source = await readFile(path, "utf8");
-    return toConfigValue(this.format.parse(source));
+  private withProfile(profileName: string | undefined): Data<F> {
+    return new Data(this.format, this.source, profileName);
   }
 }
 
@@ -175,6 +139,81 @@ function createFormatProvider(format: Format): FormatProvider {
       return Data.string(format, source);
     },
   };
+}
+
+function createFileSource(path: string): FileDataSource {
+  return {
+    type: "file",
+    path,
+    required: false,
+    search: true,
+  };
+}
+
+function createStringSource(source: string): StringDataSource {
+  return {
+    type: "string",
+    source,
+  };
+}
+
+function isFileDataSource(source: DataSource): source is FileDataSource {
+  return source.type === "file";
+}
+
+function metadataForSource(formatName: string, source: DataSource): Metadata {
+  if (isFileDataSource(source)) {
+    return metadataFromFile(`${formatName} file`, source.path);
+  }
+
+  return metadataFromInline(`${formatName} source string`, `${formatName} inline string`);
+}
+
+async function loadDataSource(format: Format, source: DataSource): Promise<ConfigValue> {
+  if (!isFileDataSource(source)) {
+    return toConfigValue(format.parse(source.source));
+  }
+
+  const path = await resolvePath(source.path, source.search);
+  if (!path) {
+    if (!source.required) {
+      return {};
+    }
+
+    throw new Error(`required file '${source.path}' not found`);
+  }
+
+  const fileSource = await readFile(path, "utf8");
+  return toConfigValue(format.parse(fileSource));
+}
+
+function asProfileMap(
+  value: ConfigValue,
+  profileName: string | undefined,
+  formatName: string,
+): ProfileMap {
+  if (profileName) {
+    if (!isConfigDict(value)) {
+      throw new Error(`${formatName} source must decode to a dictionary when nesting is disabled`);
+    }
+
+    return {
+      [profileName]: value,
+    };
+  }
+
+  if (!isConfigDict(value)) {
+    throw new Error(`${formatName} nested source must decode to a profile dictionary`);
+  }
+
+  const output: ProfileMap = {};
+  for (const [profile, profileValue] of Object.entries(value)) {
+    if (isConfigDict(profileValue)) {
+      output[normalizeProfile(profile)] = profileValue;
+    }
+  }
+
+  return output;
 }
 
 async function resolvePath(path: string, search: boolean): Promise<string | undefined> {
