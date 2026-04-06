@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY } from "../../src/core/const.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
 
 describe("Serialized.defaults / globals", () => {
@@ -60,19 +59,19 @@ describe("data", () => {
     expect(() => s.data()).toThrow("must serialize to a dictionary");
   });
 
-  it("maps undefined leaf values to EMPTY sentinel", () => {
+  it("preserves undefined leaf values", () => {
     const s = Serialized.defaults({ present: "ok", missing: undefined });
-    expect(s.data()).toEqual({ default: { present: "ok", missing: EMPTY } });
+    expect(s.data()).toEqual({ default: { present: "ok", missing: undefined } });
   });
 
-  it("maps nested undefined leaves to EMPTY sentinel", () => {
+  it("preserves nested undefined leaves", () => {
     const s = Serialized.defaults({ outer: { inner: undefined } });
-    expect(s.data()).toEqual({ default: { outer: { inner: EMPTY } } });
+    expect(s.data()).toEqual({ default: { outer: { inner: undefined } } });
   });
 
-  it("maps undefined array elements to EMPTY sentinel", () => {
+  it("preserves undefined array elements", () => {
     const s = Serialized.defaults({ list: [1, undefined, 3] });
-    expect(s.data()).toEqual({ default: { list: [1, EMPTY, 3] } });
+    expect(s.data()).toEqual({ default: { list: [1, undefined, 3] } });
   });
 });
 

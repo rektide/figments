@@ -1,7 +1,4 @@
-import type { EmptySentinel } from "./const.ts";
-import { isEmpty } from "./const.ts";
-
-export type ConfigPrimitive = string | number | boolean | null;
+export type ConfigPrimitive = string | number | boolean | null | undefined;
 
 export interface ConfigDict {
   [key: string]: ConfigValue;
@@ -9,7 +6,7 @@ export interface ConfigDict {
 
 export interface ConfigArray extends Array<ConfigValue> {}
 
-export type ConfigValue = ConfigPrimitive | ConfigArray | ConfigDict | EmptySentinel;
+export type ConfigValue = ConfigPrimitive | ConfigArray | ConfigDict;
 
 export type ProfileMap = Record<string, ConfigDict>;
 
@@ -18,10 +15,6 @@ export function isConfigDict(value: ConfigValue | unknown): value is ConfigDict 
 }
 
 export function deepClone<T extends ConfigValue>(value: T): T {
-  if (isEmpty(value)) {
-    return value;
-  }
-
   if (Array.isArray(value)) {
     return (value as ConfigValue[]).map((item: ConfigValue) => deepClone(item)) as T;
   }

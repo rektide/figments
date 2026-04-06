@@ -10,7 +10,6 @@ import {
   profileCoalesce,
   type CoalesceOrder,
 } from "../../src/core/coalesce.ts";
-import { EMPTY } from "../../src/core/const.ts";
 import { makeTag, type Tag, type TagArrayNode, type TagDictNode } from "../../src/core/tag.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "../../src/core/types.ts";
 
@@ -52,13 +51,13 @@ describe("coalesceValue — scalar conflict resolution", () => {
     expect(coalesceValue("a", null, "join")).toBe("a");
   });
 
-  it.each(ALL_ORDERS)("EMPTY loses to non-empty values: %s", (order) => {
-    expect(coalesceValue(EMPTY, "b", order)).toBe("b");
-    expect(coalesceValue("a", EMPTY, order)).toBe("a");
+  it.each(ALL_ORDERS)("undefined loses to non-empty values: %s", (order) => {
+    expect(coalesceValue(undefined, "b", order)).toBe("b");
+    expect(coalesceValue("a", undefined, order)).toBe("a");
   });
 
-  it.each(ALL_ORDERS)("EMPTY with EMPTY stays EMPTY: %s", (order) => {
-    expect(coalesceValue(EMPTY, EMPTY, order)).toBe(EMPTY);
+  it.each(ALL_ORDERS)("undefined with undefined stays undefined: %s", (order) => {
+    expect(coalesceValue(undefined, undefined, order)).toBeUndefined();
   });
 });
 
@@ -191,17 +190,13 @@ describe("coalesceValue — zip with sparse positions", () => {
 
 describe("coalesceValue — zip with explicit undefined elements", () => {
   it("zipmerge treats explicit undefined like sparse holes", () => {
-    // @ts-expect-error intentional runtime-invalid input to verify defensive behavior
     const a: ConfigValue[] = [50, undefined, 4];
-    // @ts-expect-error intentional runtime-invalid input to verify defensive behavior
     const b: ConfigValue[] = [undefined, 2, 6, undefined, 20];
     expect(coalesceValue(a, b, "zipmerge")).toEqual([50, 2, 6, undefined, 20]);
   });
 
   it("zipjoin treats explicit undefined like sparse holes", () => {
-    // @ts-expect-error intentional runtime-invalid input to verify defensive behavior
     const a: ConfigValue[] = [50, undefined, 4];
-    // @ts-expect-error intentional runtime-invalid input to verify defensive behavior
     const b: ConfigValue[] = [undefined, 2, 6, undefined, 20];
     expect(coalesceValue(a, b, "zipjoin")).toEqual([50, 2, 4, undefined, 20]);
   });

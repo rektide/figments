@@ -354,7 +354,7 @@ describe("path introspection", () => {
     expect(await figment.contains("app.missing")).toBe(false);
   });
 
-  it("lets explicit values override EMPTY sentinel during coalesce", async () => {
+  it("lets explicit values override undefined during coalesce", async () => {
     const joinOverEmpty = Figment.new()
       .join(Serialized.default("name", undefined))
       .join(Serialized.default("name", "incoming"));
@@ -366,7 +366,7 @@ describe("path introspection", () => {
     expect(await mergeOverEmpty.extract({ path: "name" })).toBe("base");
   });
 
-  it("build resolves EMPTY sentinel leaves to undefined", async () => {
+  it("build preserves undefined leaves", async () => {
     const figment = Figment.new().merge(Serialized.defaults({ app: { missing: undefined } }));
     const config = await figment.build<{ app: { missing?: string } }>();
 
