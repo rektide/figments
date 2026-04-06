@@ -164,6 +164,17 @@ export class Figment implements Stateful<FigmentState> {
     return [...this.activeProfiles];
   }
 
+  /**
+   * Returns collected metadata entries in insertion order.
+   *
+   * This is a global metadata view across all merged providers and imported
+   * metadata maps, useful for diagnostics and audits.
+   */
+  public async metadataEntries(): Promise<Metadata[]> {
+    await this.ready();
+    return [...this.metadataByTag.values()];
+  }
+
   public async explain<T = unknown>(options: ExplainOptions<T> = {}): Promise<ExplainResult<T>> {
     const path = normalizePath(options.path);
     const selectedProfiles = options.profiles

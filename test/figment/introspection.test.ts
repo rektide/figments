@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { metadataNamed } from "../../src/core/metadata.ts";
 import { Figment } from "../../src/figment.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
+import { taggedProvider } from "../../src/providers/tagged.ts";
 import { NamedProvider, ProfileNamedProvider, allMetadataNames } from "../helpers.ts";
 
 describe("path introspection", () => {
@@ -109,5 +111,66 @@ describe("path introspection", () => {
     expect(await allMetadataNames(figment, "app.ports")).toEqual(["IncomingProvider"]);
     expect(await allMetadataNames(figment, "app.name")).toEqual(["BaseProvider"]);
     expect(await allMetadataNames(figment, "app.missing")).toEqual([]);
+  });
+});
+
+describe("metadata iteration", () => {
+  it("returns an empty list for an empty figment", async () => {
+    expect(await Figment.new().metadataEntries()).toEqual([]);
+  });
+
+  it("returns provider metadata in global insertion order", async () => {
+    const figment = Figment.new()
+      .merge(new NamedProvider("TomlConfig", { app: { host: "base" } }))
+      .join(new NamedProvider("JsonFallback", { app: { host: "fallback" } }))
+      .merge(
+        taggedProvider({
+          name: "TaggedRuntime",
+          data: {
+            default: {
+              app: {
+                db: {
+                  password: "secret",
+                },
+              },
+            },
+          },
+          rules: [
+            {
+              path: "app.db.password",
+              metadata: metadataNamed("SecretStore"),
+              mode: "node",
+            },
+          ],
+        }),
+      );
+
+    const names = (await figment.metadataEntries()).map((metadata) => metadata.name);
+    expect(names).toEqual(["TomlConfig", "JsonFallback", "TaggedRuntime", "SecretStore"]);
+  });
+
+  it("can be correlated with path winner metadata", async () => {
+    const figment = Figment.new().merge(
+      taggedProvider({
+        name: "Runtime",
+        data: {
+          default: {
+            app: {
+              host: "localhost",
+              token: "secret",
+            },
+          },
+        },
+        rules: [{ path: "app.token", metadata: metadataNamed("TokenSource"), mode: "node" }],
+      }),
+    );
+
+    const all = await figment.metadataEntries();
+    expect(all.map((metadata) => metadata.name)).toEqual(["Runtime", "TokenSource"]);
+
+    const host = await figment.explain({ path: "app.host", includeMetadata: "winner" });
+    const token = await figment.explain({ path: "app.token", includeMetadata: "winner" });
+    expect(host.metadata?.name).toBe("Runtime");
+    expect(token.metadata?.name).toBe("TokenSource");
   });
 });
