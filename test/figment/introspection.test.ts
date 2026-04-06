@@ -4,6 +4,7 @@ import { metadataNamed } from "../../src/core/metadata.ts";
 import { Figment } from "../../src/figment.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
 import { taggedProvider } from "../../src/providers/tagged.ts";
+import { createTaggedAppTokenProvider } from "../fixtures/tagged.ts";
 import { NamedProvider, ProfileNamedProvider, allMetadataNames } from "../helpers.ts";
 
 describe("path introspection", () => {
@@ -150,20 +151,7 @@ describe("metadata iteration", () => {
   });
 
   it("can be correlated with path winner metadata", async () => {
-    const figment = Figment.new().merge(
-      taggedProvider({
-        name: "Runtime",
-        data: {
-          default: {
-            app: {
-              host: "localhost",
-              token: "secret",
-            },
-          },
-        },
-        rules: [{ path: "app.token", metadata: metadataNamed("TokenSource"), mode: "node" }],
-      }),
-    );
+    const figment = Figment.new().merge(createTaggedAppTokenProvider({ name: "Runtime" }));
 
     const all = await figment.metadataEntries();
     expect(all.map((metadata) => metadata.name)).toEqual(["Runtime", "TokenSource"]);

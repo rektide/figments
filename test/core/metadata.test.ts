@@ -1,13 +1,17 @@
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
+  Metadata,
+  MetadataBuilder,
   formatMetadataSource,
-  metadataNamed,
   metadataFrom,
   metadataFromCode,
   metadataFromEnv,
   metadataFromFile,
   metadataFromInline,
+  metadataNamed,
 } from "../../src/core/metadata.ts";
 
 describe("metadata source typing", () => {
@@ -55,6 +59,13 @@ describe("metadata source typing", () => {
     expect(formatMetadataSource(metadataFrom("Custom", "named").source)).toBe("named");
   });
 
+  it("formats absolute file paths relative to cwd when shorter", () => {
+    const absolute = resolve(process.cwd(), "Config.toml");
+    expect(formatMetadataSource(metadataFromFile("TOML", absolute).source)).toBe(
+      "file Config.toml",
+    );
+  });
+
   it("returns empty string when source is missing", () => {
     expect(formatMetadataSource(undefined)).toBe("");
   });
@@ -83,5 +94,33 @@ describe("metadata interpolation", () => {
   it("supports interpolation with empty key paths", () => {
     const metadata = metadataNamed("EmptyKeys");
     expect(metadata.interpolate("default", [])).toBe("default.");
+  });
+});
+
+describe("fluent metadata builder", () => {
+  it("supports Metadata.named().source().interpolater().build()", () => {
+    const metadata = Metadata.named("Env")
+      .source({ kind: "env", selector: "APP_*" })
+      .interpolater((_, keys) => keys.map((key) => key.toUpperCase()).join("."))
+      .build();
+
+    expect(metadata.name).toBe("Env");
+    expect(metadata.source).toEqual({ kind: "env", selector: "APP_*" });
+    expect(metadata.interpolate("default", ["app", "name"])).toBe("APP.NAME");
+  });
+
+  it("supports Metadata.from(name, string) custom source shorthand", () => {
+    const metadata = Metadata.from("Custom", "vault://path").build();
+    expect(metadata.source).toEqual({ kind: "custom", value: "vault://path" });
+  });
+
+  it("supports MetadataBuilder direct usage with provideLocation", () => {
+    const metadata = MetadataBuilder.named("File")
+      .source({ kind: "file", path: "/etc/app.toml" })
+      .provideLocation("test/core/metadata.test.ts")
+      .build();
+
+    expect(metadata.source).toEqual({ kind: "file", path: "/etc/app.toml" });
+    expect(metadata.provideLocation).toBe("test/core/metadata.test.ts");
   });
 });

@@ -5,10 +5,13 @@ import { makeTag, type ProfileTagMap } from "../src/core/tag.ts";
 import type { ConfigDict } from "../src/core/types.ts";
 
 export class NamedProvider implements Provider {
-  public constructor(
-    private readonly providerName: string,
-    private readonly payload: ConfigDict,
-  ) {}
+  readonly providerName: string;
+  readonly payload: ConfigDict;
+
+  public constructor(providerName: string, payload: ConfigDict) {
+    this.providerName = providerName;
+    this.payload = payload;
+  }
 
   public metadata() {
     return metadataNamed(this.providerName);
@@ -20,11 +23,15 @@ export class NamedProvider implements Provider {
 }
 
 export class ProfileNamedProvider implements Provider {
-  public constructor(
-    private readonly providerName: string,
-    private readonly profileName: string,
-    private readonly payload: ConfigDict,
-  ) {}
+  readonly providerName: string;
+  readonly profileName: string;
+  readonly payload: ConfigDict;
+
+  public constructor(providerName: string, profileName: string, payload: ConfigDict) {
+    this.providerName = providerName;
+    this.profileName = profileName;
+    this.payload = payload;
+  }
 
   public metadata() {
     return metadataNamed(this.providerName);

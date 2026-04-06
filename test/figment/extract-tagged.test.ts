@@ -1,27 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { metadataNamed } from "../../src/core/metadata.ts";
 import { Figment } from "../../src/figment.ts";
-import { taggedProvider } from "../../src/providers/tagged.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
+import { createTaggedAppTokenProvider, createTaggedPortProvider } from "../fixtures/tagged.ts";
 import { winnerMetadataName } from "../helpers.ts";
 
 describe("extractTagged", () => {
   it("returns value with winner tag and metadata", async () => {
-    const figment = Figment.new().merge(
-      taggedProvider({
-        name: "TaggedApp",
-        data: {
-          default: {
-            app: {
-              host: "localhost",
-              token: "secret",
-            },
-          },
-        },
-        rules: [{ path: "app.token", metadata: metadataNamed("TokenSource"), mode: "node" }],
-      }),
-    );
+    const figment = Figment.new().merge(createTaggedAppTokenProvider());
 
     const result = await figment.extractTagged({ path: "app.token" });
     expect(result.exists).toBe(true);
@@ -31,19 +17,7 @@ describe("extractTagged", () => {
   });
 
   it("supports deserializers while preserving metadata context", async () => {
-    const figment = Figment.new().merge(
-      taggedProvider({
-        name: "TaggedPort",
-        data: {
-          default: {
-            app: {
-              port: "8080",
-            },
-          },
-        },
-        rules: [{ path: "app.port", metadata: metadataNamed("PortSource"), mode: "node" }],
-      }),
-    );
+    const figment = Figment.new().merge(createTaggedPortProvider());
 
     const result = await figment.extractTagged<number>({
       path: "app.port",

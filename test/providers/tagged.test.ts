@@ -8,6 +8,7 @@ import {
 } from "../../src/core/metadata.ts";
 import { Figment } from "../../src/figment.ts";
 import { Tagged, taggedProvider } from "../../src/providers/tagged.ts";
+import { appDbReplicasConfig, appHostByProfile } from "../fixtures/config.ts";
 import { winnerMetadataName } from "../helpers.ts";
 
 describe("Tagged provider usage", () => {
@@ -15,15 +16,7 @@ describe("Tagged provider usage", () => {
     const provider = Tagged.from({
       name: "TaggedExample",
       data: {
-        default: {
-          app: {
-            host: "localhost",
-            db: {
-              user: "app",
-              password: "secret",
-            },
-          },
-        },
+        default: appDbReplicasConfig(),
       },
       rules: [
         { path: "app.host", metadata: metadataFromEnv("EnvHost", "APP_HOST"), mode: "node" },
@@ -49,10 +42,7 @@ describe("Tagged provider usage", () => {
   it("supports profile-specific rules", async () => {
     const provider = Tagged.from({
       name: "ProfileTagged",
-      data: {
-        default: { app: { host: "default.example" } },
-        debug: { app: { host: "debug.example" } },
-      },
+      data: appHostByProfile(),
       rules: [
         {
           profile: "debug",
@@ -112,14 +102,7 @@ describe("Tagged provider rule behavior", () => {
     const provider = Tagged.from({
       name: "NodeOnly",
       data: {
-        default: {
-          app: {
-            db: {
-              user: "app",
-              password: "secret",
-            },
-          },
-        },
+        default: appDbReplicasConfig(),
       },
       rules: [{ path: "app.db", metadata: metadataNamed("DbNode"), mode: "node" }],
     });
@@ -201,10 +184,7 @@ describe("Tagged provider rule behavior", () => {
   it("unscoped rules apply across all profiles", async () => {
     const provider = Tagged.from({
       name: "AllProfiles",
-      data: {
-        default: { app: { host: "default.example" } },
-        debug: { app: { host: "debug.example" } },
-      },
+      data: appHostByProfile(),
       rules: [{ path: "app.host", metadata: metadataNamed("SharedHostRule"), mode: "node" }],
     });
 

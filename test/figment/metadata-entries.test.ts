@@ -5,6 +5,7 @@ import { Figment } from "../../src/figment.ts";
 import { taggedProvider } from "../../src/providers/tagged.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
 import { Tuple } from "../../src/providers/tuple.ts";
+import { createTaggedAppTokenProvider } from "../fixtures/tagged.ts";
 import { NamedProvider } from "../helpers.ts";
 
 describe("metadataEntries", () => {
@@ -20,23 +21,9 @@ describe("metadataEntries", () => {
 
   it("includes helper-generated per-path metadata entries", async () => {
     const figment = Figment.new().merge(
-      taggedProvider({
+      createTaggedAppTokenProvider({
         name: "TaggedRuntime",
-        data: {
-          default: {
-            app: {
-              host: "localhost",
-              token: "secret",
-            },
-          },
-        },
-        rules: [
-          {
-            path: "app.token",
-            metadata: metadataFromEnv("TokenFromEnv", "APP_TOKEN"),
-            mode: "node",
-          },
-        ],
+        tokenMetadata: metadataFromEnv("TokenFromEnv", "APP_TOKEN"),
       }),
     );
 
