@@ -234,4 +234,18 @@ describe("Env.var / Env.varOr", () => {
       expect(Env.varOr("missing_key", "fallback")).toBe("fallback");
     });
   });
+
+  it("matches keys case-insensitively and tolerates trimmed env key names", async () => {
+    await withEnv({ "  TeSt_FiGmEnT_MiXeD  ": " 123 " }, () => {
+      expect(Env.var("test_figment_mixed")).toBe("123");
+      expect(Env.varOr("TEST_FIGMENT_MIXED", "fallback")).toBe("123");
+    });
+  });
+
+  it("does not use fallback when env value trims to an empty string", async () => {
+    await withEnv({ TEST_FIGMENT_EMPTY: "   " }, () => {
+      expect(Env.var("test_figment_empty")).toBe("");
+      expect(Env.varOr("test_figment_empty", "fallback")).toBe("");
+    });
+  });
 });
