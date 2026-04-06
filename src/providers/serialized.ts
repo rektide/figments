@@ -1,4 +1,5 @@
 import type { Provider } from "../provider.ts";
+import { FigmentError } from "../core/error.ts";
 import { metadataFromInline } from "../core/metadata.ts";
 import type { Metadata } from "../core/metadata.ts";
 import { DEFAULT_PROFILE, GLOBAL_PROFILE, normalizeProfile } from "../profile.ts";
@@ -72,7 +73,7 @@ export class Serialized<T = unknown> implements Provider {
   }
 }
 
-function toConfigValue(value: unknown): ConfigValue {
+function toConfigValue(value: unknown, path: Array<string | number> = []): ConfigValue {
   if (
     value === null ||
     typeof value === "string" ||
@@ -83,18 +84,19 @@ function toConfigValue(value: unknown): ConfigValue {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => toConfigValue(item));
+    return value.map((item, index) => toConfigValue(item, [...path, index]));
   }
 
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
     const dict: ConfigDict = {};
     for (const [key, item] of Object.entries(record)) {
-      dict[key] = toConfigValue(item);
+      dict[key] = toConfigValue(item, [...path, key]);
     }
 
     return deepClone(dict);
   }
 
-  return String(value);
+  const error = FigmentError.unsupported(value);
+  throw path.length > 0 ? error.withPath(path.join(".")) : error;
 }

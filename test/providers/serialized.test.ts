@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { FigmentError } from "../../src/core/error.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
 
 describe("Serialized.defaults / globals", () => {
@@ -57,6 +58,24 @@ describe("data", () => {
   it("throws on unkeyed non-dict value", () => {
     const s = new Serialized("scalar");
     expect(() => s.data()).toThrow("must serialize to a dictionary");
+  });
+
+  it("throws on unsupported undefined leaf values", () => {
+    const s = Serialized.defaults({ present: "ok", missing: undefined });
+    try {
+      s.data();
+      expect.unreachable("expected data() to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(FigmentError);
+      if (!(error instanceof FigmentError)) {
+        throw error;
+      }
+
+      const figmentError = error;
+      expect(figmentError.kind).toBe("Unsupported");
+      expect(figmentError.actual).toBe("undefined");
+      expect(figmentError.path).toEqual(["missing"]);
+    }
   });
 });
 

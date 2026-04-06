@@ -4,6 +4,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import * as TOML from "@iarna/toml";
 import YAML from "yaml";
 
+import { FigmentError } from "../core/error.ts";
 import type { Provider } from "../provider.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "../core/types.ts";
 import { isConfigDict } from "../core/types.ts";
@@ -212,7 +213,7 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-function toConfigValue(value: unknown): ConfigValue {
+function toConfigValue(value: unknown, path: Array<string | number> = []): ConfigValue {
   if (
     value === null ||
     typeof value === "string" ||
@@ -223,17 +224,18 @@ function toConfigValue(value: unknown): ConfigValue {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => toConfigValue(item));
+    return value.map((item, index) => toConfigValue(item, [...path, index]));
   }
 
   if (typeof value === "object") {
     const dict: ConfigDict = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      dict[key] = toConfigValue(item);
+      dict[key] = toConfigValue(item, [...path, key]);
     }
 
     return dict;
   }
 
-  return String(value);
+  const error = FigmentError.unsupported(value);
+  throw path.length > 0 ? error.withPath(path.join(".")) : error;
 }

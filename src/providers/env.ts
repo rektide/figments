@@ -1,5 +1,6 @@
 import * as TOML from "@iarna/toml";
 
+import { FigmentError } from "../core/error.ts";
 import type { Provider } from "../provider.ts";
 import { metadataFromEnv } from "../core/metadata.ts";
 import type { Metadata } from "../core/metadata.ts";
@@ -231,7 +232,7 @@ function parseEnvironmentValue(rawValue: string): ConfigValue {
   }
 }
 
-function convertUnknown(value: unknown): ConfigValue {
+function convertUnknown(value: unknown, path: Array<string | number> = []): ConfigValue {
   if (
     value === null ||
     typeof value === "string" ||
@@ -242,17 +243,18 @@ function convertUnknown(value: unknown): ConfigValue {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => convertUnknown(item));
+    return value.map((item, index) => convertUnknown(item, [...path, index]));
   }
 
   if (typeof value === "object") {
     const dict: ConfigDict = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      dict[key] = convertUnknown(item);
+      dict[key] = convertUnknown(item, [...path, key]);
     }
 
     return dict;
   }
 
-  return String(value);
+  const error = FigmentError.unsupported(value);
+  throw path.length > 0 ? error.withPath(path.join(".")) : error;
 }
