@@ -196,7 +196,10 @@ export class FigmentError extends Error {
       return mapped[0];
     }
 
-    return new FigmentAggregateError(mapped, `failed to decode ${scope} with ${mapped.length} issues`);
+    return new FigmentAggregateError(
+      mapped,
+      `failed to decode ${scope} with ${mapped.length} issues`,
+    );
   }
 
   public static invalidType(expected: string, actualValue: unknown): FigmentError {
@@ -265,7 +268,10 @@ export class FigmentAggregateError extends AggregateError {
   }
 
   public withPath(path: string): FigmentAggregateError {
-    return new FigmentAggregateError(this.errors.map((error) => error.withPath(path)), this.message);
+    return new FigmentAggregateError(
+      this.errors.map((error) => error.withPath(path)),
+      this.message,
+    );
   }
 
   public withContext(context: FigmentErrorContext): FigmentAggregateError {
@@ -322,9 +328,10 @@ export function mergeFigmentFailures(
     return incoming;
   }
 
-  return new FigmentAggregateError(
-    [...flattenFigmentFailure(incoming), ...flattenFigmentFailure(previous)],
-  );
+  return new FigmentAggregateError([
+    ...flattenFigmentFailure(incoming),
+    ...flattenFigmentFailure(previous),
+  ]);
 }
 
 function decodeIssues(error: unknown): DecoderIssue[] {

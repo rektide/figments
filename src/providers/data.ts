@@ -16,7 +16,12 @@ export interface Format {
 }
 
 type DataSource =
-  | { readonly type: "file"; readonly path: string; readonly required: boolean; readonly search: boolean }
+  | {
+      readonly type: "file";
+      readonly path: string;
+      readonly required: boolean;
+      readonly search: boolean;
+    }
   | { readonly type: "string"; readonly source: string };
 
 export class Data<F extends Format> implements Provider {

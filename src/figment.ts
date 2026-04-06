@@ -61,13 +61,13 @@ export interface BuildOptions<T = ConfigDict> extends ResolveBaseOptions {
 }
 
 export interface ExtractOptions<T = ConfigValue>
-  extends ResolveBaseOptions,
-    MissingOptions<ConfigValue> {
+  extends ResolveBaseOptions, MissingOptions<ConfigValue> {
   path: string;
   deser?: ValueDecoder<T, ConfigValue>;
 }
 
-export interface ExplainOptions<T = unknown> extends ResolveBaseOptions, MissingOptions<ConfigValue> {
+export interface ExplainOptions<T = unknown>
+  extends ResolveBaseOptions, MissingOptions<ConfigValue> {
   path?: string;
   deser?: ValueDecoder<T, unknown>;
   includeMetadata?: IncludeMetadataMode;
@@ -186,19 +186,14 @@ export class Figment implements Stateful<FigmentState> {
 
     const resolved =
       options.deser && value !== undefined
-        ? runDecoder(
-            value,
-            options.deser,
-            describeScope(path, interpret),
-            {
-              path,
-              context: {
-                tag,
-                ...context,
-                metadata: winnerMetadata,
-              },
+        ? runDecoder(value, options.deser, describeScope(path, interpret), {
+            path,
+            context: {
+              tag,
+              ...context,
+              metadata: winnerMetadata,
             },
-          )
+          })
         : value;
 
     const metadata = includeMetadata === "none" ? undefined : winnerMetadata;
@@ -468,20 +463,19 @@ export class Figment implements Stateful<FigmentState> {
         next.values = coalesceProfiles(next.values, incoming, order);
         next.tags = coalesceTagProfiles(next.tags, incomingTags, order);
       } catch (error) {
-        const figmentError =
-          isFigmentFailure(error)
-            ? error.withContext({
-                metadata: contextMetadata,
-                tag: contextTag,
-                ...next.errorProfileContext(),
-              })
-            : FigmentError.message(error instanceof Error ? error.message : String(error)).withContext(
-                {
-                  metadata: contextMetadata,
-                  tag: contextTag,
-                  ...next.errorProfileContext(),
-                },
-              );
+        const figmentError = isFigmentFailure(error)
+          ? error.withContext({
+              metadata: contextMetadata,
+              tag: contextTag,
+              ...next.errorProfileContext(),
+            })
+          : FigmentError.message(
+              error instanceof Error ? error.message : String(error),
+            ).withContext({
+              metadata: contextMetadata,
+              tag: contextTag,
+              ...next.errorProfileContext(),
+            });
 
         next.failure = mergeFigmentFailures(figmentError, next.failure);
       }
@@ -648,7 +642,10 @@ function normalizePath(path: string | undefined): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-function applyInterpret(value: ConfigValue | ConfigDict, interpret: InterpretMode): ConfigValue | ConfigDict {
+function applyInterpret(
+  value: ConfigValue | ConfigDict,
+  interpret: InterpretMode,
+): ConfigValue | ConfigDict {
   if (interpret === "lossy") {
     return isConfigDict(value) ? lossyConfig(value) : lossyValue(value);
   }
@@ -676,9 +673,7 @@ function resolveMissingValue<T>(
       return null;
     case "default": {
       const fallback =
-        typeof options.fallback === "function"
-          ? (options.fallback as () => T)()
-          : options.fallback;
+        typeof options.fallback === "function" ? (options.fallback as () => T)() : options.fallback;
       if (fallback === undefined) {
         throw FigmentError.invalidValue("missing fallback for missing policy 'default'")
           .withPath(missingPath)
@@ -700,7 +695,10 @@ function describeScope(path: string | undefined, interpret: InterpretMode): stri
   return interpret === "lossy" ? "lossy config" : "config";
 }
 
-function collectMetadata(tree: TagTree | undefined, metadataByTag: ReadonlyMap<number, Metadata>): Metadata[] {
+function collectMetadata(
+  tree: TagTree | undefined,
+  metadataByTag: ReadonlyMap<number, Metadata>,
+): Metadata[] {
   if (!tree) {
     return [];
   }
@@ -833,8 +831,9 @@ function runDecoder<T, V>(
 
     return decode.parse(value);
   } catch (error) {
-    let figmentError: FigmentFailure =
-      isFigmentFailure(error) ? error : FigmentError.decode(scope, error);
+    let figmentError: FigmentFailure = isFigmentFailure(error)
+      ? error
+      : FigmentError.decode(scope, error);
 
     if (options?.path) {
       figmentError = figmentError.withPath(options.path);

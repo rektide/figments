@@ -7,7 +7,7 @@ import {
   metadataFromEnv,
   metadataFromFile,
   metadataFromInline,
-} from "../src/core/metadata.ts";
+} from "../../src/core/metadata.ts";
 
 describe("metadata source typing", () => {
   it("creates typed file/env/inline/custom/code sources", () => {
@@ -46,9 +46,7 @@ describe("metadata source typing", () => {
     expect(formatMetadataSource(metadataFromFile("TOML", "Config.toml").source)).toBe(
       "file Config.toml",
     );
-    expect(formatMetadataSource(metadataFromEnv("Env", "APP_*").source)).toBe(
-      "environment APP_*",
-    );
+    expect(formatMetadataSource(metadataFromEnv("Env", "APP_*").source)).toBe("environment APP_*");
     expect(formatMetadataSource(metadataFromInline("Inline", "desc").source)).toBe("desc");
     expect(formatMetadataSource(metadataFromCode("Code", "src/a.ts:1").source)).toBe(
       "code src/a.ts:1",
