@@ -1,8 +1,36 @@
 import { describe, expect, it } from "vitest";
 
 import { Figment } from "../src/figment.ts";
+import { isCustomProfile, profileFromEnv, profileFromEnvOr } from "../src/profile.ts";
 import { Serialized } from "../src/providers/serialized.ts";
 import { ProfileNamedProvider } from "./helpers.ts";
+
+async function withEnv(
+  values: Record<string, string | undefined>,
+  run: () => Promise<void> | void,
+): Promise<void> {
+  const previous: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    await run();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
 
 describe("selectProfiles", () => {
   it("overlays profiles in list order", async () => {
@@ -122,5 +150,45 @@ describe("providerProfileSelection", () => {
       .join(Serialized.default("value", "ignored").profile("other"));
 
     expect(figment.selectedProfiles()).toEqual(["debug"]);
+  });
+});
+
+describe("profileFromEnv", () => {
+  it("reads profile from env key case-insensitively and normalizes value", async () => {
+    await withEnv({ TEST_FIGMENT_PROFILE: "  DeBuG  " }, () => {
+      expect(profileFromEnv("test_figment_profile")).toBe("debug");
+    });
+  });
+
+  it("returns undefined when env key is missing", async () => {
+    await withEnv({ TEST_FIGMENT_PROFILE: undefined }, () => {
+      expect(profileFromEnv("TEST_FIGMENT_PROFILE")).toBeUndefined();
+    });
+  });
+});
+
+describe("profileFromEnvOr", () => {
+  it("uses fallback when env key is missing and normalizes fallback", async () => {
+    await withEnv({ TEST_FIGMENT_PROFILE: undefined }, () => {
+      expect(profileFromEnvOr("TEST_FIGMENT_PROFILE", "DeFaUlt")).toBe("default");
+    });
+  });
+
+  it("prefers env value over fallback", async () => {
+    await withEnv({ TEST_FIGMENT_PROFILE: "release" }, () => {
+      expect(profileFromEnvOr("TEST_FIGMENT_PROFILE", "debug")).toBe("release");
+    });
+  });
+});
+
+describe("isCustomProfile", () => {
+  it("detects built-in default/global as non-custom", () => {
+    expect(isCustomProfile("default")).toBe(false);
+    expect(isCustomProfile("global")).toBe(false);
+  });
+
+  it("detects non-built-in profiles as custom", () => {
+    expect(isCustomProfile("debug")).toBe(true);
+    expect(isCustomProfile("release")).toBe(true);
   });
 });

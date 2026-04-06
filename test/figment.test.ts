@@ -52,6 +52,17 @@ describe("figment merge behavior", () => {
     expect(await figment.extract<string[]>({ path: "items" })).toEqual(["a", "b"]);
   });
 
+  it("adjoin concatenates arrays while keeping join semantics for scalars", async () => {
+    const figment = Figment.new()
+      .join(Serialized.default("name", "base"))
+      .join(Serialized.default("items", ["a"]))
+      .adjoin(Serialized.default("name", "incoming"))
+      .adjoin(Serialized.default("items", ["b"]));
+
+    expect(await figment.extract<string>({ path: "name" })).toBe("base");
+    expect(await figment.extract<string[]>({ path: "items" })).toEqual(["a", "b"]);
+  });
+
   it("zipjoin and zipmerge coalesce arrays by index", async () => {
     const base = new NamedProvider("BaseProvider", { items: [1, 2] });
     const incoming = new NamedProvider("IncomingProvider", { items: [2, 3, 4] });
@@ -203,6 +214,15 @@ describe("figment merge behavior", () => {
     expect(await selectedDebug.extract<string>({ path: "name" })).toBe("debug");
     expect(await base.contains("extra")).toBe(false);
     expect(await extended.contains("extra")).toBe(true);
+  });
+
+  it("profiles lists all profiles that currently have data", async () => {
+    const figment = Figment.new()
+      .merge(Serialized.defaults({ app: { name: "base" } }))
+      .merge(Serialized.default("app.debug", true).profile("debug"))
+      .merge(Serialized.global("app.fallback", true));
+
+    expect((await figment.profiles()).sort()).toEqual(["debug", "default", "global"]);
   });
 });
 
