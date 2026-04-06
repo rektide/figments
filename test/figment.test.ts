@@ -251,6 +251,23 @@ describe("decoder behavior", () => {
     expect(count).toBe(42);
   });
 
+  it("extract runs deserializer for missing='undefined' values", async () => {
+    const figment = Figment.new().merge(Serialized.defaults({ present: true }));
+    const decoded = await figment.extract({
+      path: "missing",
+      missing: "undefined",
+      deser: (value) => {
+        if (value !== undefined) {
+          throw new Error("expected undefined");
+        }
+
+        return "handled-missing";
+      },
+    });
+
+    expect(decoded).toBe("handled-missing");
+  });
+
   it("wraps decoder failures as FigmentError", async () => {
     const figment = Figment.new().merge(Serialized.defaults({ port: "not-a-number" }));
 
@@ -345,6 +362,24 @@ describe("path introspection", () => {
     expect(missing.exists).toBe(false);
     expect(missing.value).toBeUndefined();
     expect(missing.metadata).toBeUndefined();
+  });
+
+  it("explain runs deserializer for missing='undefined' values", async () => {
+    const figment = Figment.new().merge(Serialized.defaults({ present: true }));
+    const explained = await figment.explain({
+      path: "missing",
+      missing: "undefined",
+      deser: (value) => {
+        if (value !== undefined) {
+          throw new Error("expected undefined");
+        }
+
+        return "decoded-missing";
+      },
+    });
+
+    expect(explained.exists).toBe(false);
+    expect(explained.value).toBe("decoded-missing");
   });
 
   it("explain(includeMetadata='all') returns deterministic unique contributor metadata", async () => {

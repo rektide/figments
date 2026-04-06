@@ -63,7 +63,7 @@ export interface BuildOptions<T = ConfigDict> extends ResolveBaseOptions {
 export interface ExtractOptions<T = ConfigValue>
   extends ResolveBaseOptions, MissingOptions<ConfigValue> {
   path: string;
-  deser?: ValueDecoder<T, ConfigValue>;
+  deser?: ValueDecoder<T, ConfigValue | undefined>;
 }
 
 export interface ExplainOptions<T = unknown>
@@ -184,17 +184,16 @@ export class Figment implements Stateful<FigmentState> {
         ? resolveMissingValue(path, options, context, "undefined")
         : applyInterpret(rawValue, interpret);
 
-    const resolved =
-      options.deser && value !== undefined
-        ? runDecoder(value, options.deser, describeScope(path, interpret), {
-            path,
-            context: {
-              tag,
-              ...context,
-              metadata: winnerMetadata,
-            },
-          })
-        : value;
+    const resolved = options.deser
+      ? runDecoder(value, options.deser, describeScope(path, interpret), {
+          path,
+          context: {
+            tag,
+            ...context,
+            metadata: winnerMetadata,
+          },
+        })
+      : value;
 
     const metadata = includeMetadata === "none" ? undefined : winnerMetadata;
     const metadataAll =
@@ -321,17 +320,16 @@ export class Figment implements Stateful<FigmentState> {
           ? lossyValue(rawValue)
           : rawValue;
 
-    const resolved =
-      options.deser && value !== undefined
-        ? runDecoder(value, options.deser, describeScope(path, interpret), {
-            path,
-            context: {
-              tag,
-              ...context,
-              metadata,
-            },
-          })
-        : value;
+    const resolved = options.deser
+      ? runDecoder(value, options.deser, describeScope(path, interpret), {
+          path,
+          context: {
+            tag,
+            ...context,
+            metadata,
+          },
+        })
+      : value;
 
     return cloneResolvable(resolved) as T;
   }
