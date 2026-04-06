@@ -120,9 +120,13 @@ describe("coalesceValue — array behavior per order", () => {
 
 describe("coalesceValue — zip with sparse positions", () => {
   const sparse = (): ConfigValue[] => {
-    const a = [50, , 4] as unknown as ConfigValue[];
-    const b = [, 2, 6, , 20] as unknown as ConfigValue[];
-    return [a, b] as unknown as ConfigValue[];
+    const a: ConfigValue[] = [50];
+    a[2] = 4;
+    const b: ConfigValue[] = [];
+    b[1] = 2;
+    b[2] = 6;
+    b[4] = 20;
+    return [a, b];
   };
 
   it("zipmerge fills sparse slots from the other side", () => {
@@ -171,6 +175,24 @@ describe("coalesceValue — zip with sparse positions", () => {
   it("join keeps a entirely", () => {
     const [a, b] = sparse();
     expect(coalesceValue(a, b, "join")).toEqual([50, undefined, 4]);
+  });
+});
+
+describe("coalesceValue — zip with explicit undefined elements", () => {
+  it("zipmerge treats explicit undefined like sparse holes", () => {
+    // @ts-expect-error intentional runtime-invalid input to verify defensive behavior
+    const a: ConfigValue[] = [50, undefined, 4];
+    // @ts-expect-error intentional runtime-invalid input to verify defensive behavior
+    const b: ConfigValue[] = [undefined, 2, 6, undefined, 20];
+    expect(coalesceValue(a, b, "zipmerge")).toEqual([50, 2, 6, undefined, 20]);
+  });
+
+  it("zipjoin treats explicit undefined like sparse holes", () => {
+    // @ts-expect-error intentional runtime-invalid input to verify defensive behavior
+    const a: ConfigValue[] = [50, undefined, 4];
+    // @ts-expect-error intentional runtime-invalid input to verify defensive behavior
+    const b: ConfigValue[] = [undefined, 2, 6, undefined, 20];
+    expect(coalesceValue(a, b, "zipjoin")).toEqual([50, 2, 4, undefined, 20]);
   });
 });
 
