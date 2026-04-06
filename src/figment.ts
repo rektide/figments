@@ -33,10 +33,20 @@ import {
 import { FIGMENTS_STATE, type Stateful } from "./state.ts";
 import { Tuple, isTupleEntry, type TupleEntry } from "./providers/tuple.ts";
 
+export interface DecodeContext {
+  readonly path?: string;
+  readonly profile: string;
+  readonly selectedProfiles: string[];
+  readonly effectiveProfileOrder: string[];
+  readonly tag?: Tag;
+  readonly metadata?: Metadata;
+  readonly metadataAll: Metadata[];
+}
+
 export type ValueDecoder<T, V = ConfigValue> =
-  | ((value: V) => T)
+  | ((value: V, context?: DecodeContext) => T)
   | {
-      parse(value: V): T;
+      parse(value: V, context?: DecodeContext): T;
     };
 
 export type ProviderProfileSelectionMode = "coalesce" | "seedWhenEmpty" | "never";
@@ -192,19 +202,62 @@ export class Figment implements Stateful<FigmentState> {
 
   /**
    * Extracts a value and returns winner-tag metadata alongside the value.
-   *
-   * This is convenience sugar over `explain({ includeMetadata: "winner" })`
-   * for callers that need the extracted value plus provenance in one call.
    */
   public async extractTagged<T = ConfigValue>(
     options: ExtractOptions<T>,
   ): Promise<ExplainResult<T>> {
-    const { deser, ...rest } = options;
-    return this.explain<T>({
-      ...rest,
-      deser: deser as ValueDecoder<T, unknown> | undefined,
-      includeMetadata: "winner",
-    });
+    const path = normalizePath(options.path);
+    if (path === undefined) {
+      throw FigmentError.invalidValue("extractTagged requires a non-empty path");
+    }
+
+    const selectedProfiles = options.profiles
+      ? normalizeSelectedProfiles(options.profiles)
+      : this.activeProfiles;
+    const interpret = options.interpret ?? "default";
+    const context = this.errorProfileContext(selectedProfiles);
+
+    const merged = await this.mergedState(selectedProfiles);
+    const rawValue = findValue(merged.value, path);
+    const tree = findTag(merged.tags, path);
+    const exists = rawValue !== undefined;
+    const tag = unwrapTag(tree);
+    const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
+
+    const value =
+      rawValue === undefined
+        ? resolveMissingValue(path, options, context, "throw")
+        : interpret === "lossy"
+          ? lossyValue(rawValue)
+          : rawValue;
+
+    const resolved = options.deser
+      ? runDecoder(value, options.deser, describeScope(path, interpret), {
+          path,
+          context: {
+            tag,
+            ...context,
+            metadata,
+          },
+          decodeContext: createDecodeContext({
+            path,
+            tree,
+            tag,
+            metadata,
+            profileContext: context,
+            metadataByTag: this.metadataByTag,
+          }),
+        })
+      : value;
+
+    return {
+      path,
+      exists,
+      value: cloneResolvable(resolved),
+      tag,
+      metadata,
+      ...context,
+    };
   }
 
   public async explain<T = unknown>(options: ExplainOptions<T> = {}): Promise<ExplainResult<T>> {
@@ -236,6 +289,14 @@ export class Figment implements Stateful<FigmentState> {
             ...context,
             metadata: winnerMetadata,
           },
+          decodeContext: createDecodeContext({
+            path,
+            tree,
+            tag,
+            metadata: winnerMetadata,
+            profileContext: context,
+            metadataByTag: this.metadataByTag,
+          }),
         })
       : value;
 
@@ -372,6 +433,14 @@ export class Figment implements Stateful<FigmentState> {
             ...context,
             metadata,
           },
+          decodeContext: createDecodeContext({
+            path,
+            tree,
+            tag,
+            metadata,
+            profileContext: context,
+            metadataByTag: this.metadataByTag,
+          }),
         })
       : value;
 
@@ -399,6 +468,14 @@ export class Figment implements Stateful<FigmentState> {
               ...context,
               metadata,
             },
+            decodeContext: createDecodeContext({
+              path: undefined,
+              tree: merged.tags,
+              tag,
+              metadata,
+              profileContext: context,
+              metadataByTag: this.metadataByTag,
+            }),
           });
 
     return cloneResolvable(resolved) as T;
@@ -870,6 +947,7 @@ function runDecoder<T, V>(
   scope: string,
   options?: {
     path?: string;
+    decodeContext?: DecodeContext;
     context?: {
       tag?: Tag;
       profile?: string;
@@ -881,10 +959,10 @@ function runDecoder<T, V>(
 ): T {
   try {
     if (typeof decode === "function") {
-      return decode(value);
+      return decode(value, options?.decodeContext);
     }
 
-    return decode.parse(value);
+    return decode.parse(value, options?.decodeContext);
   } catch (error) {
     let figmentError: FigmentFailure = isFigmentFailure(error)
       ? error
@@ -900,6 +978,39 @@ function runDecoder<T, V>(
 
     throw figmentError;
   }
+}
+
+function createDecodeContext(options: {
+  path: string | undefined;
+  tree: TagTree | undefined;
+  tag: Tag | undefined;
+  metadata: Metadata | undefined;
+  profileContext: {
+    profile: string;
+    selectedProfiles: string[];
+    effectiveProfileOrder: string[];
+  };
+  metadataByTag: ReadonlyMap<number, Metadata>;
+}): DecodeContext {
+  let metadataAllCache: Metadata[] | undefined;
+  const selectedProfiles = [...options.profileContext.selectedProfiles];
+  const effectiveProfileOrder = [...options.profileContext.effectiveProfileOrder];
+
+  return {
+    path: options.path,
+    profile: options.profileContext.profile,
+    selectedProfiles,
+    effectiveProfileOrder,
+    tag: options.tag,
+    metadata: options.metadata,
+    get metadataAll() {
+      if (metadataAllCache === undefined) {
+        metadataAllCache = collectMetadata(options.tree, options.metadataByTag);
+      }
+
+      return [...metadataAllCache];
+    },
+  };
 }
 
 function emptyTagDictNode(): TagDictNode {

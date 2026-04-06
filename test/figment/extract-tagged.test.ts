@@ -14,6 +14,7 @@ describe("extractTagged", () => {
     expect(result.value).toBe("secret");
     expect(result.tag).toBeDefined();
     expect(result.metadata?.name).toBe("TokenSource");
+    expect(result.metadataAll).toBeUndefined();
   });
 
   it("supports deserializers while preserving metadata context", async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Figment } from "../../src/figment.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
 import { eitherDecoder } from "../../src/value/either-decoder.ts";
+import { createTaggedPortProvider } from "../fixtures/tagged.ts";
 
 describe("eitherDecoder", () => {
   it("falls back to the secondary decoder when primary fails", async () => {
@@ -69,5 +70,26 @@ describe("eitherDecoder", () => {
     await expect(figment.extract({ path: "port", deser: decoder })).rejects.toThrow(
       "second failure",
     );
+  });
+
+  it("forwards decode context to whichever branch succeeds", async () => {
+    const figment = Figment.new().merge(createTaggedPortProvider());
+    const decoder = eitherDecoder(
+      (_value, context) => {
+        expect(context?.metadata?.name).toBe("PortSource");
+        throw new Error("force fallback");
+      },
+      (value, context) => {
+        expect(context?.path).toBe("app.port");
+        expect(context?.metadata?.name).toBe("PortSource");
+        if (typeof value !== "string") {
+          throw new Error("not a string");
+        }
+
+        return Number.parseInt(value, 10);
+      },
+    );
+
+    expect(await figment.extract<number>({ path: "app.port", deser: decoder })).toBe(8080);
   });
 });
