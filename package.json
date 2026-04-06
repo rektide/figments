@@ -26,8 +26,7 @@
 	"license": "ISC",
 	"packageManager": "pnpm@10.29.3",
 	"dependencies": {
-		"@iarna/toml": "^2.2.5",
-		"yaml": "^2.8.2"
+		"@iarna/toml": "^2.2.5"
 	},
 	"devDependencies": {
 		"@types/node": "^25.2.3",
@@ -36,8 +35,12 @@
 		"oxfmt": "^0.32.0",
 		"oxlint": "^1.47.0",
 		"tsdown": "^0.20.3",
-		"vitest": "^4.0.18"
+		"vitest": "^4.0.18",
+		"yaml": "^2.8.3"
 	},
 	"type": "module",
-	"types": "./dist/index.d.mts"
+	"types": "./dist/index.d.mts",
+	"peerDependencies": {
+		"yaml": "^2.8.3"
+	}
 }

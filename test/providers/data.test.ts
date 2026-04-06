@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { Figment } from "../../src/figment.ts";
-import { Json, Toml, Yaml } from "../../src/providers/data.ts";
+import { Json, Toml, Yaml, YamlExtended } from "../../src/providers/data.ts";
 
 describe("Data.file (Toml)", () => {
   it("loads toml from file", async () => {
@@ -106,6 +106,63 @@ describe("format providers", () => {
       name: "yaml",
       count: 5,
     });
+  });
+
+  it("Yaml keeps merge keys as literal fields", async () => {
+    const source = ["point: &POINT { x: 1, y: 2 }", "circle:", "  <<: *POINT", "  r: 3", ""].join(
+      "\n",
+    );
+    const figment = Figment.new().merge(Yaml.string(source));
+
+    expect(await figment.extract<number>({ path: "circle.r" })).toBe(3);
+    expect(
+      await figment.extract<number>({ path: "circle.x", missing: "undefined" }),
+    ).toBeUndefined();
+    expect(await figment.extract<{ x: number; y: number }>({ path: "circle.<<" })).toEqual({
+      x: 1,
+      y: 2,
+    });
+  });
+
+  it("YamlExtended applies YAML merge keys", async () => {
+    const source = [
+      "point: &POINT { x: 1, y: 2 }",
+      "radius: &RADIUS",
+      "  r: 10",
+      "circle1:",
+      "  <<: *POINT",
+      "  r: 3",
+      "circle2:",
+      "  <<: [ *POINT, *RADIUS ]",
+      "circle3:",
+      "  <<: [ *POINT, *RADIUS ]",
+      "  y: 14",
+      "  r: 20",
+      "",
+    ].join("\n");
+    const figment = Figment.new().merge(YamlExtended.string(source));
+
+    expect(await figment.extract<{ x: number; y: number; r: number }>({ path: "circle1" })).toEqual(
+      {
+        x: 1,
+        y: 2,
+        r: 3,
+      },
+    );
+    expect(await figment.extract<{ x: number; y: number; r: number }>({ path: "circle2" })).toEqual(
+      {
+        x: 1,
+        y: 2,
+        r: 10,
+      },
+    );
+    expect(await figment.extract<{ x: number; y: number; r: number }>({ path: "circle3" })).toEqual(
+      {
+        x: 1,
+        y: 14,
+        r: 20,
+      },
+    );
   });
 });
 

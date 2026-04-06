@@ -129,6 +129,11 @@ export const Yaml: FormatProvider = createFormatProvider({
   parse: (source) => YAML.parse(source),
 });
 
+export const YamlExtended: FormatProvider = createFormatProvider({
+  name: "YAML Extended",
+  parse: (source) => YAML.parse(source, { merge: true }),
+});
+
 export interface FormatProvider {
   file(path: string): Data<Format>;
   string(source: string): Data<Format>;

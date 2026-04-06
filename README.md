@@ -10,7 +10,7 @@ TypeScript port of the rust `figment` library
 - providers:
   - `Serialized`
   - `Env`
-  - `Data` (`Json`, `Toml`, `Yaml`)
+  - `Data` (`Json`, `Toml`, `Yaml`, `YamlExtended`)
 
 ## Notes
 
