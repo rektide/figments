@@ -33,6 +33,7 @@ type DataSource = FileDataSource | StringDataSource;
 export class Data<F extends Format> implements Provider {
   private readonly source: DataSource;
   private readonly profileName: string | undefined;
+  private readonly metadataValue: Metadata;
 
   public constructor(
     private readonly format: F,
@@ -41,6 +42,7 @@ export class Data<F extends Format> implements Provider {
   ) {
     this.source = source;
     this.profileName = profileName;
+    this.metadataValue = metadataForSource(this.format.name, this.source);
   }
 
   public static file<F extends Format>(format: F, path: string): Data<F> {
@@ -93,12 +95,16 @@ export class Data<F extends Format> implements Provider {
   }
 
   public metadata(): Metadata {
-    return metadataForSource(this.format.name, this.source);
+    return this.metadataValue;
   }
 
   public async data(): Promise<ProfileMap> {
-    const value = await loadDataSource(this.format, this.source);
-    return asProfileMap(value, this.profileName, this.format.name);
+    const loaded = await loadDataSource(this.format, this.source);
+    if (loaded.resolvedPath && this.metadataValue.source?.kind === "file") {
+      this.metadataValue.source.path = loaded.resolvedPath;
+    }
+
+    return asProfileMap(loaded.value, this.profileName, this.format.name);
   }
 
   private withSource(source: DataSource): Data<F> {
@@ -169,22 +175,28 @@ function metadataForSource(formatName: string, source: DataSource): Metadata {
   return metadataFromInline(`${formatName} source string`, `${formatName} inline string`);
 }
 
-async function loadDataSource(format: Format, source: DataSource): Promise<ConfigValue> {
+async function loadDataSource(
+  format: Format,
+  source: DataSource,
+): Promise<{ value: ConfigValue; resolvedPath?: string }> {
   if (!isFileDataSource(source)) {
-    return toConfigValue(format.parse(source.source));
+    return { value: toConfigValue(format.parse(source.source)) };
   }
 
   const path = await resolvePath(source.path, source.search);
   if (!path) {
     if (!source.required) {
-      return {};
+      return { value: {} };
     }
 
     throw new Error(`required file '${source.path}' not found`);
   }
 
   const fileSource = await readFile(path, "utf8");
-  return toConfigValue(format.parse(fileSource));
+  return {
+    value: toConfigValue(format.parse(fileSource)),
+    resolvedPath: path,
+  };
 }
 
 function asProfileMap(

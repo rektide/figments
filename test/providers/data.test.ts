@@ -121,4 +121,25 @@ describe("metadata", () => {
     expect(metadata.name).toBe("TOML source string");
     expect(metadata.source).toEqual({ kind: "inline", descriptor: "TOML inline string" });
   });
+
+  it("updates file metadata source path to resolved file location", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "figment-ts-"));
+    const configPath = join(temp, "Config.toml");
+    const deep = join(temp, "a", "b", "c");
+    await mkdir(deep, { recursive: true });
+    await writeFile(configPath, 'name = "resolved"\n', "utf8");
+
+    const previousCwd = process.cwd();
+    process.chdir(deep);
+    try {
+      const figment = Figment.new().merge(Toml.file("Config.toml").required(true));
+      expect(await figment.extract<string>({ path: "name" })).toBe("resolved");
+
+      const explained = await figment.explain({ path: "name", includeMetadata: "winner" });
+      expect(explained.metadata?.source).toEqual({ kind: "file", path: configPath });
+    } finally {
+      process.chdir(previousCwd);
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
 });
