@@ -183,4 +183,33 @@ describe("Tagged provider rule behavior", () => {
     const tagMapB = provider.tagMap();
     expect(tagMapB.default.tag.metadataId).not.toBe(9_999);
   });
+
+  it("applies the last matching rule when multiple rules target same path", async () => {
+    const provider = Tagged.from({
+      name: "RuleOrder",
+      data: { default: { app: { token: "value" } } },
+      rules: [
+        { path: "app.token", metadata: metadataNamed("FirstRule"), mode: "node" },
+        { path: "app.token", metadata: metadataNamed("SecondRule"), mode: "node" },
+      ],
+    });
+
+    const figment = Figment.new().merge(provider);
+    expect(await winnerMetadataName(figment, "app.token")).toBe("SecondRule");
+  });
+
+  it("unscoped rules apply across all profiles", async () => {
+    const provider = Tagged.from({
+      name: "AllProfiles",
+      data: {
+        default: { app: { host: "default.example" } },
+        debug: { app: { host: "debug.example" } },
+      },
+      rules: [{ path: "app.host", metadata: metadataNamed("SharedHostRule"), mode: "node" }],
+    });
+
+    const figment = Figment.new().merge(provider);
+    expect(await winnerMetadataName(figment.select("default"), "app.host")).toBe("SharedHostRule");
+    expect(await winnerMetadataName(figment.select("debug"), "app.host")).toBe("SharedHostRule");
+  });
 });
