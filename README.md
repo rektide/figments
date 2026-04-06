@@ -79,3 +79,48 @@ const figment = Figment.new()
 const source = (await figment.explain({ path: "server.host", includeMetadata: "winner" })).metadata
 // source?.name -> "Serialized"
 ```
+
+## Error Handling
+
+Decoders that throw `FigmentError` preserve structured context:
+
+```ts
+import { Figment, FigmentError } from "./src/index.ts"
+
+const figment = Figment.new().merge(providers.Serialized.default("app.port", "oops"))
+
+try {
+  await figment.extract({ path: "app.port", deser: (value) => {
+    if (typeof value !== "number") throw FigmentError.invalidType("number", value)
+    return value
+  } })
+} catch (error) {
+  if (error instanceof FigmentError) {
+    error.kind    // "InvalidType"
+    error.path    // ["app", "port"]
+    error.profile // "default"
+    String(error) // "invalid type (expected number, found string) for key 'app.port' in Serialized"
+  }
+}
+```
+
+Multiple decoder failures aggregate into a single `FigmentAggregateError`:
+
+```ts
+import { FigmentAggregateError, FigmentError } from "./src/index.ts"
+
+const aggregate = FigmentError.decode("config", {
+  issues: [
+    { code: "invalid_type", message: "expected number", expected: "number", received: "oops", path: ["app", "port"] },
+    { code: "unrecognized_keys", message: "unrecognized key(s)", keys: ["extra"], path: ["app"] },
+  ],
+})
+
+aggregate.count()          // 2
+aggregate.missing()        // false
+[...aggregate].map(e => e.kind) // ["InvalidType", "UnknownField"]
+String(aggregate)
+// failed to decode config with 2 issues
+// invalid type (expected number, found string) for key 'app.port'
+// unknown field ('extra' expected one of: extra) for key 'app'
+```
