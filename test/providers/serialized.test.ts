@@ -60,7 +60,7 @@ describe("data", () => {
     expect(() => s.data()).toThrow("must serialize to a dictionary");
   });
 
-  it("throws on unsupported undefined leaf values", () => {
+  it("rejects undefined leaf values", () => {
     const s = Serialized.defaults({ present: "ok", missing: undefined });
     try {
       s.data();
@@ -72,9 +72,41 @@ describe("data", () => {
       }
 
       const figmentError = error;
-      expect(figmentError.kind).toBe("Unsupported");
-      expect(figmentError.actual).toBe("undefined");
+      expect(figmentError.kind).toBe("InvalidValue");
+      expect(figmentError.message).toBe("serialized values cannot contain undefined");
       expect(figmentError.path).toEqual(["missing"]);
+    }
+  });
+
+  it("reports nested path for undefined leaves", () => {
+    const s = Serialized.defaults({ outer: { inner: undefined } });
+    try {
+      s.data();
+      expect.unreachable("expected data() to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(FigmentError);
+      if (!(error instanceof FigmentError)) {
+        throw error;
+      }
+
+      expect(error.kind).toBe("InvalidValue");
+      expect(error.path).toEqual(["outer", "inner"]);
+    }
+  });
+
+  it("reports array index for undefined elements", () => {
+    const s = Serialized.defaults({ list: [1, undefined, 3] });
+    try {
+      s.data();
+      expect.unreachable("expected data() to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(FigmentError);
+      if (!(error instanceof FigmentError)) {
+        throw error;
+      }
+
+      expect(error.kind).toBe("InvalidValue");
+      expect(error.path).toEqual(["list", "1"]);
     }
   });
 });

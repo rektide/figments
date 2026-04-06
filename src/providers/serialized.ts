@@ -74,6 +74,11 @@ export class Serialized<T = unknown> implements Provider {
 }
 
 function toConfigValue(value: unknown, path: Array<string | number> = []): ConfigValue {
+  if (value === undefined) {
+    const error = FigmentError.invalidValue("serialized values cannot contain undefined");
+    throw path.length > 0 ? error.withPath(path.join(".")) : error;
+  }
+
   if (
     value === null ||
     typeof value === "string" ||
