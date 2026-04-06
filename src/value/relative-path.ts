@@ -7,10 +7,13 @@ import type { Metadata } from "../core/metadata.ts";
  * produced it, when file-source metadata is available.
  */
 export class RelativePathBuf {
-  public constructor(
-    private readonly pathValue: string,
-    private readonly metadataFilePathValue?: string,
-  ) {}
+  readonly pathValue: string;
+  readonly metadataFilePathValue?: string;
+
+  public constructor(pathValue: string, metadataFilePathValue?: string) {
+    this.pathValue = pathValue;
+    this.metadataFilePathValue = metadataFilePathValue;
+  }
 
   /**
    * Creates a relative path buffer from a string value and optional metadata.

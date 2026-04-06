@@ -31,15 +31,13 @@ type StringDataSource = {
 type DataSource = FileDataSource | StringDataSource;
 
 export class Data<F extends Format> implements Provider {
-  private readonly source: DataSource;
-  private readonly profileName: string | undefined;
-  private readonly metadataValue: Metadata;
+  readonly format: F;
+  readonly source: DataSource;
+  readonly profileName: string | undefined;
+  readonly metadataValue: Metadata;
 
-  public constructor(
-    private readonly format: F,
-    source: DataSource,
-    profileName: string | undefined,
-  ) {
+  public constructor(format: F, source: DataSource, profileName: string | undefined) {
+    this.format = format;
     this.source = source;
     this.profileName = profileName;
     this.metadataValue = metadataForSource(this.format.name, this.source);
@@ -107,11 +105,11 @@ export class Data<F extends Format> implements Provider {
     return asProfileMap(loaded.value, this.profileName, this.format.name);
   }
 
-  private withSource(source: DataSource): Data<F> {
+  withSource(source: DataSource): Data<F> {
     return new Data(this.format, source, this.profileName);
   }
 
-  private withProfile(profileName: string | undefined): Data<F> {
+  withProfile(profileName: string | undefined): Data<F> {
     return new Data(this.format, this.source, profileName);
   }
 }
