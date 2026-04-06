@@ -175,6 +175,21 @@ export class Figment implements Stateful<FigmentState> {
     return [...this.metadataByTag.values()];
   }
 
+  /**
+   * Returns metadata associated with a tag.
+   *
+   * This is useful with tags returned from `explain()` when you want to resolve
+   * metadata separately from value extraction.
+   */
+  public async getMetadata(tag: Tag | undefined): Promise<Metadata | undefined> {
+    if (!tag) {
+      return undefined;
+    }
+
+    await this.ready();
+    return this.metadataByTag.get(tag.metadataId);
+  }
+
   public async explain<T = unknown>(options: ExplainOptions<T> = {}): Promise<ExplainResult<T>> {
     const path = normalizePath(options.path);
     const selectedProfiles = options.profiles
