@@ -1,5 +1,6 @@
 import type { Provider } from "../provider.ts";
 import { FigmentError } from "../core/error.ts";
+import { EMPTY } from "../core/const.ts";
 import { metadataFromInline } from "../core/metadata.ts";
 import type { Metadata } from "../core/metadata.ts";
 import { DEFAULT_PROFILE, GLOBAL_PROFILE, normalizeProfile } from "../profile.ts";
@@ -75,8 +76,7 @@ export class Serialized<T = unknown> implements Provider {
 
 function toConfigValue(value: unknown, path: Array<string | number> = []): ConfigValue {
   if (value === undefined) {
-    const error = FigmentError.invalidValue("serialized values cannot contain undefined");
-    throw path.length > 0 ? error.withPath(path.join(".")) : error;
+    return EMPTY;
   }
 
   if (

@@ -21,5 +21,6 @@ export {
   FigmentAggregateError,
   FigmentError,
 } from "./core/error.ts";
+export { EMPTY, type EmptySentinel } from "./core/const.ts";
 export { type ConfigValue, type ConfigDict, type ProfileMap } from "./core/types.ts";
 export * as providers from "./providers/index.ts";

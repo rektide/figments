@@ -1,5 +1,6 @@
 import type { ConfigDict, ConfigValue, ProfileMap } from "./types.ts";
 import { deepClone, isConfigDict } from "./types.ts";
+import { EMPTY, isEmpty } from "./const.ts";
 import {
   dictChildrenIndex,
   type DictChildTagNode,
@@ -73,6 +74,18 @@ export function coalesceValue(
   incoming: ConfigValue,
   order: CoalesceOrder,
 ): ConfigValue {
+  if (isEmpty(current) && !isEmpty(incoming)) {
+    return deepClone(incoming);
+  }
+
+  if (!isEmpty(current) && isEmpty(incoming)) {
+    return deepClone(current);
+  }
+
+  if (isEmpty(current) && isEmpty(incoming)) {
+    return EMPTY;
+  }
+
   if (isConfigDict(current) && isConfigDict(incoming)) {
     return coalesceDict(current, incoming, order);
   }

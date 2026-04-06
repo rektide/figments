@@ -10,11 +10,13 @@ import {
   profileCoalesce,
   type CoalesceOrder,
 } from "../../src/core/coalesce.ts";
+import { EMPTY } from "../../src/core/const.ts";
 import { makeTag, type Tag, type TagArrayNode, type TagDictNode } from "../../src/core/tag.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "../../src/core/types.ts";
 
 const MERGE_ORDERS: CoalesceOrder[] = ["merge", "admerge", "zipmerge"];
 const JOIN_ORDERS: CoalesceOrder[] = ["join", "adjoin", "zipjoin"];
+const ALL_ORDERS: CoalesceOrder[] = [...MERGE_ORDERS, ...JOIN_ORDERS];
 
 describe("profileCoalesce", () => {
   it.each(MERGE_ORDERS)("prefers incoming for %s", (order) => {
@@ -48,6 +50,15 @@ describe("coalesceValue — scalar conflict resolution", () => {
   it("handles null values", () => {
     expect(coalesceValue(null, "b", "merge")).toBe("b");
     expect(coalesceValue("a", null, "join")).toBe("a");
+  });
+
+  it.each(ALL_ORDERS)("EMPTY loses to non-empty values: %s", (order) => {
+    expect(coalesceValue(EMPTY, "b", order)).toBe("b");
+    expect(coalesceValue("a", EMPTY, order)).toBe("a");
+  });
+
+  it.each(ALL_ORDERS)("EMPTY with EMPTY stays EMPTY: %s", (order) => {
+    expect(coalesceValue(EMPTY, EMPTY, order)).toBe(EMPTY);
   });
 });
 

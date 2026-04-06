@@ -254,7 +254,10 @@ describe("decoder behavior", () => {
   it("extract runs deserializer for missing='undefined' values", async () => {
     const figment = Figment.new().merge(Serialized.defaults({ present: true }));
     const decoded = await figment.extract({
+      // Intentionally request a key that does not exist.
       path: "missing",
+      // For a missing path, resolve to `undefined` instead of throwing.
+      // This ensures the deserializer receives `undefined` and can handle it.
       missing: "undefined",
       deser: (value) => {
         if (value !== undefined) {
@@ -344,6 +347,33 @@ describe("path introspection", () => {
     expect(await figment.extract({ path: "app.missing", missing: "undefined" })).toBeUndefined();
   });
 
+  it("treats serialized undefined as missing during extraction", async () => {
+    const figment = Figment.new().merge(Serialized.defaults({ app: { missing: undefined } }));
+
+    expect(await figment.extract({ path: "app.missing", missing: "undefined" })).toBeUndefined();
+    expect(await figment.contains("app.missing")).toBe(false);
+  });
+
+  it("lets explicit values override EMPTY sentinel during coalesce", async () => {
+    const joinOverEmpty = Figment.new()
+      .join(Serialized.default("name", undefined))
+      .join(Serialized.default("name", "incoming"));
+    expect(await joinOverEmpty.extract({ path: "name" })).toBe("incoming");
+
+    const mergeOverEmpty = Figment.new()
+      .merge(Serialized.default("name", "base"))
+      .merge(Serialized.default("name", undefined));
+    expect(await mergeOverEmpty.extract({ path: "name" })).toBe("base");
+  });
+
+  it("build resolves EMPTY sentinel leaves to undefined", async () => {
+    const figment = Figment.new().merge(Serialized.defaults({ app: { missing: undefined } }));
+    const config = await figment.build<{ app: { missing?: string } }>();
+
+    expect(Object.hasOwn(config.app, "missing")).toBe(true);
+    expect(config.app.missing).toBeUndefined();
+  });
+
   it("explain returns value, metadata, and profile context", async () => {
     const figment = Figment.new()
       .merge(new ProfileNamedProvider("DefaultSource", "default", { app: { name: "base" } }))
@@ -367,7 +397,9 @@ describe("path introspection", () => {
   it("explain runs deserializer for missing='undefined' values", async () => {
     const figment = Figment.new().merge(Serialized.defaults({ present: true }));
     const explained = await figment.explain({
+      // Intentionally request a missing key so explain() resolves through missing policy.
       path: "missing",
+      // Use undefined-missing policy to validate that the decoder runs on `undefined`.
       missing: "undefined",
       deser: (value) => {
         if (value !== undefined) {

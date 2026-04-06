@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FigmentError } from "../../src/core/error.ts";
+import { EMPTY } from "../../src/core/const.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
 
 describe("Serialized.defaults / globals", () => {
@@ -60,54 +60,19 @@ describe("data", () => {
     expect(() => s.data()).toThrow("must serialize to a dictionary");
   });
 
-  it("rejects undefined leaf values", () => {
+  it("maps undefined leaf values to EMPTY sentinel", () => {
     const s = Serialized.defaults({ present: "ok", missing: undefined });
-    try {
-      s.data();
-      expect.unreachable("expected data() to throw");
-    } catch (error) {
-      expect(error).toBeInstanceOf(FigmentError);
-      if (!(error instanceof FigmentError)) {
-        throw error;
-      }
-
-      const figmentError = error;
-      expect(figmentError.kind).toBe("InvalidValue");
-      expect(figmentError.message).toBe("serialized values cannot contain undefined");
-      expect(figmentError.path).toEqual(["missing"]);
-    }
+    expect(s.data()).toEqual({ default: { present: "ok", missing: EMPTY } });
   });
 
-  it("reports nested path for undefined leaves", () => {
+  it("maps nested undefined leaves to EMPTY sentinel", () => {
     const s = Serialized.defaults({ outer: { inner: undefined } });
-    try {
-      s.data();
-      expect.unreachable("expected data() to throw");
-    } catch (error) {
-      expect(error).toBeInstanceOf(FigmentError);
-      if (!(error instanceof FigmentError)) {
-        throw error;
-      }
-
-      expect(error.kind).toBe("InvalidValue");
-      expect(error.path).toEqual(["outer", "inner"]);
-    }
+    expect(s.data()).toEqual({ default: { outer: { inner: EMPTY } } });
   });
 
-  it("reports array index for undefined elements", () => {
+  it("maps undefined array elements to EMPTY sentinel", () => {
     const s = Serialized.defaults({ list: [1, undefined, 3] });
-    try {
-      s.data();
-      expect.unreachable("expected data() to throw");
-    } catch (error) {
-      expect(error).toBeInstanceOf(FigmentError);
-      if (!(error instanceof FigmentError)) {
-        throw error;
-      }
-
-      expect(error.kind).toBe("InvalidValue");
-      expect(error.path).toEqual(["list", "1"]);
-    }
+    expect(s.data()).toEqual({ default: { list: [1, EMPTY, 3] } });
   });
 });
 

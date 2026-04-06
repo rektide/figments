@@ -14,6 +14,7 @@ import {
   isFigmentFailure,
   mergeFigmentFailures,
 } from "./core/error.ts";
+import { isEmpty } from "./core/const.ts";
 import { findTag, findValue } from "./core/path.ts";
 import type { Metadata } from "./core/metadata.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "./core/types.ts";
@@ -174,15 +175,16 @@ export class Figment implements Stateful<FigmentState> {
 
     const merged = await this.mergedState(selectedProfiles);
     const rawValue = path ? findValue(merged.value, path) : merged.value;
+    const normalizedRawValue = isEmpty(rawValue) ? undefined : rawValue;
     const tree = path ? findTag(merged.tags, path) : merged.tags;
-    const exists = rawValue !== undefined;
+    const exists = normalizedRawValue !== undefined;
     const tag = unwrapTag(tree);
     const winnerMetadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
 
     const value =
-      rawValue === undefined
+      normalizedRawValue === undefined
         ? resolveMissingValue(path, options, context, "undefined")
-        : applyInterpret(rawValue, interpret);
+        : resolveEmptyValue(applyInterpret(normalizedRawValue, interpret));
 
     const resolved = options.deser
       ? runDecoder(value, options.deser, describeScope(path, interpret), {
@@ -309,16 +311,17 @@ export class Figment implements Stateful<FigmentState> {
 
     const merged = await this.mergedState(selectedProfiles);
     const rawValue = findValue(merged.value, path);
+    const normalizedRawValue = isEmpty(rawValue) ? undefined : rawValue;
     const tree = findTag(merged.tags, path);
     const tag = unwrapTag(tree);
     const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
 
     const value =
-      rawValue === undefined
+      normalizedRawValue === undefined
         ? resolveMissingValue(path, options, context, "throw")
         : interpret === "lossy"
-          ? lossyValue(rawValue)
-          : rawValue;
+          ? resolveEmptyValue(lossyValue(normalizedRawValue))
+          : resolveEmptyValue(normalizedRawValue);
 
     const resolved = options.deser
       ? runDecoder(value, options.deser, describeScope(path, interpret), {
@@ -344,7 +347,9 @@ export class Figment implements Stateful<FigmentState> {
     const merged = await this.mergedState(selectedProfiles);
     const tag = unwrapTag(merged.tags);
     const metadata = tag === undefined ? undefined : this.metadataByTag.get(tag.metadataId);
-    const value = interpret === "lossy" ? lossyConfig(merged.value) : merged.value;
+    const value = resolveEmptyValue(
+      interpret === "lossy" ? lossyConfig(merged.value) : merged.value,
+    ) as ConfigDict;
 
     const resolved =
       options.deser === undefined
@@ -651,6 +656,27 @@ function applyInterpret(
   return value;
 }
 
+function resolveEmptyValue<T>(value: T): T | undefined {
+  if (isEmpty(value)) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveEmptyValue(item)) as T;
+  }
+
+  if (isConfigDict(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = resolveEmptyValue(item);
+    }
+
+    return out as T;
+  }
+
+  return value;
+}
+
 function resolveMissingValue<T>(
   path: string | undefined,
   options: MissingOptions<T>,
@@ -719,6 +745,10 @@ function collectMetadata(
 }
 
 function cloneResolvable<T>(value: T): T {
+  if (isEmpty(value)) {
+    return undefined as T;
+  }
+
   if (value === undefined || value === null) {
     return value;
   }
