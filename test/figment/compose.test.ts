@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { Figment } from "../../src/figment.ts";
 import { Serialized } from "../../src/providers/serialized.ts";
+import type { Provider } from "../../src/provider.ts";
+import { coalesceConflictFixtures, type FourWayCoalesceOrder } from "../fixtures/coalesce.ts";
 import { NamedProvider, winnerMetadataName } from "../helpers.ts";
 
 describe("figment composition", () => {
@@ -53,6 +55,21 @@ describe("figment composition", () => {
 
     expect(await figment.extract<string>({ path: "name" })).toBe("base");
     expect(await figment.extract<string[]>({ path: "items" })).toEqual(["a", "b"]);
+  });
+
+  it("applies fixture-driven conflicts for join/merge/adjoin/admerge", async () => {
+    for (const fixture of coalesceConflictFixtures()) {
+      const base = Figment.new().join(Serialized.default("value", fixture.current));
+      for (const order of ["join", "merge", "adjoin", "admerge"] as FourWayCoalesceOrder[]) {
+        const result = await applyFourWayOrder(
+          base,
+          order,
+          Serialized.default("value", fixture.incoming),
+        ).extract({ path: "value" });
+
+        expect(result).toEqual(fixture.expected[order]);
+      }
+    }
   });
 
   it("zipjoin and zipmerge coalesce arrays by index", async () => {
@@ -132,3 +149,20 @@ describe("figment composition", () => {
     expect(await figment.extract<string>({ path: "app.host" })).toBe("from-provider");
   });
 });
+
+function applyFourWayOrder(
+  figment: Figment,
+  order: FourWayCoalesceOrder,
+  provider: Provider,
+): Figment {
+  switch (order) {
+    case "join":
+      return figment.join(provider);
+    case "merge":
+      return figment.merge(provider);
+    case "adjoin":
+      return figment.adjoin(provider);
+    case "admerge":
+      return figment.admerge(provider);
+  }
+}

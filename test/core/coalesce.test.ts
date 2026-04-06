@@ -12,10 +12,12 @@ import {
 } from "../../src/core/coalesce.ts";
 import { makeTag, type Tag, type TagArrayNode, type TagDictNode } from "../../src/core/tag.ts";
 import type { ConfigDict, ConfigValue, ProfileMap } from "../../src/core/types.ts";
+import { coalesceConflictFixtures, type FourWayCoalesceOrder } from "../fixtures/coalesce.ts";
 
 const MERGE_ORDERS: CoalesceOrder[] = ["merge", "admerge", "zipmerge"];
 const JOIN_ORDERS: CoalesceOrder[] = ["join", "adjoin", "zipjoin"];
 const ALL_ORDERS: CoalesceOrder[] = [...MERGE_ORDERS, ...JOIN_ORDERS];
+const FOUR_WAY_ORDERS: FourWayCoalesceOrder[] = ["join", "merge", "adjoin", "admerge"];
 
 describe("profileCoalesce", () => {
   it.each(MERGE_ORDERS)("prefers incoming for %s", (order) => {
@@ -59,6 +61,18 @@ describe("coalesceValue — scalar conflict resolution", () => {
   it.each(ALL_ORDERS)("undefined with undefined stays undefined: %s", (order) => {
     expect(coalesceValue(undefined, undefined, order)).toBeUndefined();
   });
+});
+
+describe("coalesceValue — fixture-driven four-way conflicts", () => {
+  for (const fixture of coalesceConflictFixtures()) {
+    for (const order of FOUR_WAY_ORDERS) {
+      it(`${fixture.name}: ${order}`, () => {
+        expect(coalesceValue(fixture.current, fixture.incoming, order)).toEqual(
+          fixture.expected[order],
+        );
+      });
+    }
+  }
 });
 
 describe("coalesceValue — nested dict merging", () => {
