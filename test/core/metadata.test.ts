@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatMetadataSource,
+  metadataNamed,
   metadataFrom,
   metadataFromCode,
   metadataFromEnv,
@@ -52,5 +53,35 @@ describe("metadata source typing", () => {
       "code src/a.ts:1",
     );
     expect(formatMetadataSource(metadataFrom("Custom", "named").source)).toBe("named");
+  });
+
+  it("returns empty string when source is missing", () => {
+    expect(formatMetadataSource(undefined)).toBe("");
+  });
+});
+
+describe("metadata interpolation", () => {
+  it("metadataNamed interpolates as profile.key.path", () => {
+    const metadata = metadataNamed("Named");
+    expect(metadata.interpolate("debug", ["app", "host"])).toBe("debug.app.host");
+  });
+
+  it("metadataFrom* builders preserve default interpolation behavior", () => {
+    const cases = [
+      metadataFrom("Custom", "inline custom"),
+      metadataFromFile("File", "Config.toml"),
+      metadataFromEnv("Env", "APP_*"),
+      metadataFromInline("Inline", "source string"),
+      metadataFromCode("Code", "src/app.ts:1"),
+    ];
+
+    for (const metadata of cases) {
+      expect(metadata.interpolate("default", ["a", "b"])).toBe("default.a.b");
+    }
+  });
+
+  it("supports interpolation with empty key paths", () => {
+    const metadata = metadataNamed("EmptyKeys");
+    expect(metadata.interpolate("default", [])).toBe("default.");
   });
 });
